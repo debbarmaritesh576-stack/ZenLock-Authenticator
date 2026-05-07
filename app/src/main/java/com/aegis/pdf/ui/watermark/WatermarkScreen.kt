@@ -1,9 +1,9 @@
-package com.aegis.pdf.ui.security
+package com.aegis.pdf.ui.watermark
 
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.aegis.pdf.core.pdf.PdfEncryptor
+import com.aegis.pdf.core.pdf.PdfWatermarker
 import com.aegis.pdf.data.local.DocumentDataSource
 import com.aegis.pdf.data.repository.PdfRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -16,8 +16,8 @@ import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 @HiltViewModel
-class SecurityViewModel @Inject constructor(
-    private val pdfEncryptor: PdfEncryptor,
+class WatermarkViewModel @Inject constructor(
+    private val pdfWatermarker: PdfWatermarker,
     private val documentDataSource: DocumentDataSource,
     private val repository: PdfRepository
 ) : ViewModel() {
@@ -31,8 +31,8 @@ class SecurityViewModel @Inject constructor(
     private val _fileName = MutableStateFlow("")
     val fileName: StateFlow<String> = _fileName.asStateFlow()
 
-    private val _mode = MutableStateFlow("protect")
-    val mode: StateFlow<String> = _mode.asStateFlow()
+    private val _watermarkType = MutableStateFlow("text")
+    val watermarkType: StateFlow<String> = _watermarkType.asStateFlow()
 
     private var inputUri: Uri? = null
 
@@ -41,29 +41,22 @@ class SecurityViewModel @Inject constructor(
         _fileName.value = documentDataSource.getFileName(uri)
     }
 
-    fun setMode(mode: String) {
-        _mode.value = mode
+    fun setType(type: String) {
+        _watermarkType.value = type
     }
 
-    fun process(password: String) {
+    fun applyWatermark(text: String) {
         viewModelScope.launch {
             _isProcessing.value = true
             try {
                 withContext(Dispatchers.IO) {
                     val inputFile = documentDataSource.copyToTemp(inputUri!!)!!
-                    val outputFile = repository.createOutputFile(
-                        if (_mode.value == "protect") "protected" else "unlocked"
-                    )
-                    val success = if (_mode.value == "protect") {
-                        pdfEncryptor.addPassword(inputFile, outputFile, password)
-                    } else {
-                        pdfEncryptor.removePassword(inputFile, outputFile, password)
-                    }
+                    val outputFile = repository.createOutputFile("watermarked")
+                    val success = pdfWatermarker.addTextWatermark(inputFile, outputFile, text)
                     documentDataSource.deleteAll(inputFile)
                     withContext(Dispatchers.Main) {
-                        _resultMessage.value = if (success) {
-                            "Success! File saved: ${outputFile.name}"
-                        } else "Operation failed. Check password."
+                        _resultMessage.value = if (success) "Success! Saved: ${outputFile.name}"
+                        else "Failed to add watermark"
                     }
                 }
             } catch (e: Exception) {
