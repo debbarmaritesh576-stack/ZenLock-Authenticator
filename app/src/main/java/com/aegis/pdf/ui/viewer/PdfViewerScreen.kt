@@ -1,56 +1,75 @@
 package com.aegis.pdf.ui.viewer
 
-import android.content.Context
 import android.net.Uri
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
-import com.aegis.pdf.core.pdf.PdfManager
-import com.aegis.pdf.data.repository.PdfRepository
-import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.aegis.pdf.ui.components.PdfThumbnail
+import com.aegis.pdf.ui.components.EmptyState
 import java.io.File
-import javax.inject.Inject
 
-@HiltViewModel
-class PdfViewerViewModel @Inject constructor(
-    @ApplicationContext private val context: Context,
-    private val pdfManager: PdfManager,
-    private val repository: PdfRepository
-) : ViewModel() {
+@Composable
+fun PdfViewerScreen(
+    viewModel: PdfViewerViewModel = hiltViewModel(),
+    onBack: () -> Unit
+) {
+    val context = LocalContext.current
+    val pageCount by viewModel.pageCount.collectAsState()
+    val fileName by viewModel.fileName.collectAsState()
 
-    private val _pageCount = MutableStateFlow(0)
-    val pageCount: StateFlow<Int> = _pageCount.asStateFlow()
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let { viewModel.loadPdf(it, context) }
+    }
 
-    private val _fileName = MutableStateFlow("")
-    val fileName: StateFlow<String> = _fileName.asStateFlow()
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        Text("PDF Viewer", style = MaterialTheme.typography.headlineMedium)
 
-    var inputFile: File? = null
-        private set
+        Spacer(modifier = Modifier.height(16.dp))
 
-    fun loadPdf(uri: Uri?, context: Context) {
-        if (uri == null) {
-            _fileName.value = ""
-            _pageCount.value = 0
-            inputFile = null
-            return
-        }
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) {
-                val name = uri.lastPathSegment ?: "unknown.pdf"
-                val file = File(context.cacheDir, name)
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    file.outputStream().use { output -> input.copyTo(output) }
+        if (fileName.isEmpty()) {
+            Button(onClick = { launcher.launch("application/pdf") }) {
+                Text("Open PDF")
+            }
+        } else {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    viewModel.inputFile?.let { file ->
+                        PdfThumbnail(
+                            file = file,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(200.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(fileName, style = MaterialTheme.typography.titleMedium)
+                    Text("Pages: $pageCount", style = MaterialTheme.typography.bodySmall)
                 }
-                inputFile = file
-                _fileName.value = name
-                _pageCount.value = pdfManager.getPageCount(file)
-                repository.addToRecent(file, _pageCount.value)
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Button(
+                onClick = { viewModel.loadPdf(null, context) },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Open Another PDF")
             }
         }
     }
