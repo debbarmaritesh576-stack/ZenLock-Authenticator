@@ -42,8 +42,13 @@ class PdfRepository(
     }
 
     fun createOutputFile(prefix: String): File {
-        val dir = getOutputDirectory()
-        return File(dir, "${prefix}_${System.currentTimeMillis()}.pdf")
+        return File(getOutputDirectory(), "${prefix}_${System.currentTimeMillis()}.pdf")
+    }
+
+    fun createOutputDir(prefix: String): File {
+        val dir = File(getOutputDirectory(), "${prefix}_${System.currentTimeMillis()}")
+        dir.mkdirs()
+        return dir
     }
 
     fun formatSize(bytes: Long): String {
