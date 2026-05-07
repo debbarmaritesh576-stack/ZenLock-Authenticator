@@ -1,73 +1,100 @@
 package com.aegis.pdf.ui.watermark
 
 import android.net.Uri
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
-import com.aegis.pdf.core.pdf.PdfWatermarker
-import com.aegis.pdf.data.local.DocumentDataSource
-import com.aegis.pdf.data.repository.PdfRepository
-import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import javax.inject.Inject
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.aegis.pdf.ui.components.ProgressDialog
 
-@HiltViewModel
-class WatermarkViewModel @Inject constructor(
-    private val pdfWatermarker: PdfWatermarker,
-    private val documentDataSource: DocumentDataSource,
-    private val repository: PdfRepository
-) : ViewModel() {
+@Composable
+fun WatermarkScreen(
+    viewModel: WatermarkViewModel = hiltViewModel(),
+    onBack: () -> Unit
+) {
+    val isProcessing by viewModel.isProcessing.collectAsState()
+    val resultMessage by viewModel.resultMessage.collectAsState()
+    val fileName by viewModel.fileName.collectAsState()
+    val watermarkType by viewModel.watermarkType.collectAsState()
+    var watermarkText by remember { mutableStateOf("") }
 
-    private val _isProcessing = MutableStateFlow(false)
-    val isProcessing: StateFlow<Boolean> = _isProcessing.asStateFlow()
+    val pdfLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? -> uri?.let { viewModel.setInputFile(it) } }
 
-    private val _resultMessage = MutableStateFlow<String?>(null)
-    val resultMessage: StateFlow<String?> = _resultMessage.asStateFlow()
+    Column(
+        modifier = Modifier.fillMaxSize().padding(16.dp)
+    ) {
+        Text("Add Watermark", style = MaterialTheme.typography.headlineMedium)
+        Spacer(modifier = Modifier.height(16.dp))
 
-    private val _fileName = MutableStateFlow("")
-    val fileName: StateFlow<String> = _fileName.asStateFlow()
+        if (fileName.isEmpty()) {
+            Button(onClick = { pdfLauncher.launch("application/pdf") }) {
+                Text("Select PDF File")
+            }
+        } else {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("File: $fileName")
+                    Spacer(modifier = Modifier.height(16.dp))
 
-    private val _watermarkType = MutableStateFlow("text")
-    val watermarkType: StateFlow<String> = _watermarkType.asStateFlow()
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = watermarkType == "text",
+                            onClick = { viewModel.setType("text") },
+                            label = { Text("Text") }
+                        )
+                        FilterChip(
+                            selected = watermarkType == "image",
+                            onClick = { viewModel.setType("image") },
+                            label = { Text("Image") }
+                        )
+                    }
 
-    private var inputUri: Uri? = null
+                    Spacer(modifier = Modifier.height(16.dp))
 
-    fun setInputFile(uri: Uri) {
-        inputUri = uri
-        _fileName.value = documentDataSource.getFileName(uri)
-    }
+                    if (watermarkType == "text") {
+                        OutlinedTextField(
+                            value = watermarkText,
+                            onValueChange = { watermarkText = it },
+                            label = { Text("Watermark Text") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
 
-    fun setType(type: String) {
-        _watermarkType.value = type
-    }
+                    Spacer(modifier = Modifier.height(16.dp))
 
-    fun applyWatermark(text: String) {
-        viewModelScope.launch {
-            _isProcessing.value = true
-            try {
-                withContext(Dispatchers.IO) {
-                    val inputFile = documentDataSource.copyToTemp(inputUri!!)!!
-                    val outputFile = repository.createOutputFile("watermarked")
-                    val success = pdfWatermarker.addTextWatermark(inputFile, outputFile, text)
-                    documentDataSource.deleteAll(inputFile)
-                    withContext(Dispatchers.Main) {
-                        _resultMessage.value = if (success) "Success! Saved: ${outputFile.name}"
-                        else "Failed to add watermark"
+                    Button(
+                        onClick = { viewModel.applyWatermark(watermarkText) },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !isProcessing
+                    ) {
+                        Text("Apply Watermark")
                     }
                 }
-            } catch (e: Exception) {
-                _resultMessage.value = "Error: ${e.message}"
-            } finally {
-                _isProcessing.value = false
             }
         }
     }
 
-    fun clearResult() {
-        _resultMessage.value = null
+    if (isProcessing) {
+        ProgressDialog(title = "Adding Watermark", message = "Processing...")
+    }
+
+    resultMessage?.let { msg ->
+        AlertDialog(
+            onDismissRequest = { viewModel.clearResult() },
+            title = { Text("Result") },
+            text = { Text(msg) },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.clearResult()
+                    if (msg.startsWith("Success")) onBack()
+                }) { Text("OK") }
+            }
+        )
     }
 }
