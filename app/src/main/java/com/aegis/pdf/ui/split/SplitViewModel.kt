@@ -1,27 +1,21 @@
 package com.aegis.pdf.ui.split
 
-import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.aegis.pdf.core.pdf.PdfSplitter
-import com.aegis.pdf.data.repository.PdfRepository
+import com.aegis.pdf.data.local.DocumentDataSource
+import com.aegis.pdf.domain.usecase.SplitPdfUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
-import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.File
 import javax.inject.Inject
 
 @HiltViewModel
 class SplitViewModel @Inject constructor(
-    @ApplicationContext private val context: Context,
-    private val pdfSplitter: PdfSplitter,
-    private val repository: PdfRepository
+    private val splitUseCase: SplitPdfUseCase,
+    private val documentDataSource: DocumentDataSource
 ) : ViewModel() {
 
     private val _isProcessing = MutableStateFlow(false)
@@ -36,40 +30,33 @@ class SplitViewModel @Inject constructor(
     private val _pageCount = MutableStateFlow(0)
     val pageCount: StateFlow<Int> = _pageCount.asStateFlow()
 
-    private var inputFile: File? = null
+    private var inputUri: Uri? = null
 
-    fun setInputFile(uri: Uri, context: Context) {
-        val name = uri.lastPathSegment ?: "unknown.pdf"
-        _fileName.value = name
-        inputFile = File(context.cacheDir, name)
-        context.contentResolver.openInputStream(uri)?.use { input ->
-            inputFile?.outputStream()?.use { output -> input.copyTo(output) }
-        }
-        _pageCount.value = repository.getPdfInfo(inputFile!!).pageCount
+    fun setInputFile(uri: Uri) {
+        inputUri = uri
+        _fileName.value = documentDataSource.getFileName(uri)
     }
 
     fun splitAllPages() {
         viewModelScope.launch {
             _isProcessing.value = true
-            try {
-                withContext(Dispatchers.IO) {
-                    val input = inputFile ?: throw Exception("No file selected")
-                    val outputDir = File(context.filesDir, "AegisPDF/split_${System.currentTimeMillis()}")
-                    outputDir.mkdirs()
-                    val files = pdfSplitter.splitAllPages(input, outputDir)
-                    withContext(Dispatchers.Main) {
-                        _resultMessage.value = "Split complete! ${files.size} pages saved."
-                    }
-                }
-            } catch (e: Exception) {
-                _resultMessage.value = "Error: ${e.message}"
-            } finally {
+            val uri = inputUri
+            if (uri == null) {
+                _resultMessage.value = "No file selected"
                 _isProcessing.value = false
+                return@launch
             }
+            when (val result = splitUseCase(uri)) {
+                is SplitPdfUseCase.Result.Success -> {
+                    _resultMessage.value = "Split complete! ${result.files.size} pages saved."
+                }
+                is SplitPdfUseCase.Result.Error -> {
+                    _resultMessage.value = result.message
+                }
+            }
+            _isProcessing.value = false
         }
     }
 
-    fun clearResult() {
-        _resultMessage.value = null
-    }
+    fun clearResult() { _resultMessage.value = null }
 }
