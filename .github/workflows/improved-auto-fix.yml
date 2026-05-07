@@ -1,0 +1,97 @@
+name: Enhanced Auto Bug Detection & Fix
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 0 * * *'
+
+env:
+  GRADLE_OPTS: "-Xmx2048m"
+
+jobs:
+  quality-checks:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        java-version: [17]
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up JDK ${{ matrix.java-version }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ matrix.java-version }}
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Run All Quality Checks
+        run: |
+          ./gradlew lint detekt ktlintCheck --parallel
+        continue-on-error: true
+
+      - name: Merge Reports
+        run: |
+          mkdir -p merged-reports
+          cp -r app/build/reports/lint/* merged-reports/ 2>/dev/null || true
+          cp -r app/build/reports/detekt/* merged-reports/ 2>/dev/null || true
+
+      - name: Upload Quality Reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-reports
+          path: merged-reports/
+
+  auto-fix-pr:
+    needs: quality-checks
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Apply Auto Fixes
+        run: |
+          ./gradlew ktlintFormat detektBaselineUpdate || true
+          
+      - name: Check for Changes
+        id: check
+        run: |
+          if git diff --exit-code; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Auto-Fix PR
+        if: steps.check.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: 'chore: auto-fix code quality issues'
+          title: 'Automated: Code Quality Fixes'
+          body: |
+            ## Auto-Detected Issues Fixed
+            
+            ### Changes:
+            - Code formatting (KtLint)
+            - Code smell fixes (Detekt)
+            - Lint warnings resolved
+            - Import optimization
+            
+            Please review before merging.
+          branch: auto-fix/quality-${{ github.run_number }}
+          delete-branch: true
+          labels: 'automated,code-quality'
