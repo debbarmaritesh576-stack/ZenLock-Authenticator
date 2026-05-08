@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Aegis PDF</string>
+    <string name="tagline">プロフェッショナルPDFスイート</string>
+    <string name="merge_pdf">PDFを結合</string>
+    <string name="split_pdf">PDFを分割</string>
+    <string name="compress_pdf">圧縮</string>
+    <string name="select_pdf">PDFファイルを選択</string>
+    <string name="processing">処理中…</string>
+    <string name="done">完了</string>
+    <string name="ok">OK</string>
+    <string name="cancel">キャンセル</string>
+    <string name="save">保存</string>
+    <string name="delete">削除</string>
+    <string name="error">エラー</string>
+    <string name="success">成功</string>
+    <string name="settings">設定</string>
+    <string name="dark_mode">ダークモード</string>
+</resources>
