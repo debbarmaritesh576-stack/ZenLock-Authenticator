@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Aegis PDF</string>
+    <string name="tagline">Suite PDF Profesional</string>
+    <string name="merge_pdf">Gabung PDF</string>
+    <string name="split_pdf">Pisah PDF</string>
+    <string name="compress_pdf">Kompres</string>
+    <string name="select_pdf">Pilih file PDF</string>
+    <string name="processing">Memproses…</string>
+    <string name="done">Selesai</string>
+    <string name="ok">OK</string>
+    <string name="cancel">Batal</string>
+    <string name="save">Simpan</string>
+    <string name="delete">Hapus</string>
+    <string name="error">Kesalahan</string>
+    <string name="success">Berhasil</string>
+    <string name="settings">Pengaturan</string>
+    <string name="dark_mode">Mode gelap</string>
+</resources>
