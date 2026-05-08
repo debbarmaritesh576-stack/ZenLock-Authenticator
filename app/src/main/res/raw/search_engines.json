@@ -1,0 +1,22 @@
+{
+  "tools": [
+    {"name": "Merge PDF", "route": "merge", "icon": "ic_merge"},
+    {"name": "Split PDF", "route": "split", "icon": "ic_split"},
+    {"name": "Compress", "route": "compress", "icon": "ic_compress"},
+    {"name": "Convert", "route": "convert", "icon": "ic_convert"},
+    {"name": "Edit Pages", "route": "editor", "icon": "ic_edit"},
+    {"name": "Security", "route": "security", "icon": "ic_security"},
+    {"name": "Watermark", "route": "watermark", "icon": "ic_watermark"},
+    {"name": "AI Tools", "route": "ai", "icon": "ic_ai"},
+    {"name": "Scanner", "route": "scanner", "icon": "ic_scan"},
+    {"name": "OCR", "route": "ocr", "icon": "ic_ocr"}
+  ],
+  "templates": [
+    {"name": "Invoice", "type": "invoice"},
+    {"name": "Resume", "type": "resume"},
+    {"name": "Letter", "type": "letter"},
+    {"name": "Blank", "type": "blank"},
+    {"name": "Lined", "type": "lined"},
+    {"name": "Grid", "type": "grid"}
+  ]
+}
