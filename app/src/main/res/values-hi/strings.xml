@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">एजिस PDF</string>
+    <string name="tagline">प्रोफेशनल PDF सूट</string>
+    <string name="quick_actions">त्वरित कार्रवाई</string>
+    <string name="all_tools">सभी उपकरण</string>
+    <string name="recent_files">हाल की फ़ाइलें</string>
+    <string name="merge_pdf">PDF मर्ज करें</string>
+    <string name="split_pdf">PDF विभाजित करें</string>
+    <string name="compress_pdf">संपीड़ित करें</string>
+    <string name="convert_pdf">रूपांतरित करें</string>
+    <string name="edit_pages">पेज संपादित करें</string>
+    <string name="security">सुरक्षा</string>
+    <string name="watermark">वॉटरमार्क</string>
+    <string name="ai_tools">AI उपकरण</string>
+    <string name="scan">स्कैन करें</string>
+    <string name="ocr">OCR</string>
+    <string name="select_pdf">PDF फ़ाइल चुनें</string>
+    <string name="processing">प्रोसेस हो रहा है…</string>
+    <string name="done">हो गया</string>
+    <string name="ok">ठीक है</string>
+    <string name="cancel">रद्द करें</string>
+    <string name="save">सहेजें</string>
+    <string name="delete">हटाएं</string>
+    <string name="error">त्रुटि</string>
+    <string name="success">सफल</string>
+    <string name="settings">सेटिंग्स</string>
+    <string name="dark_mode">डार्क मोड</string>
+    <string name="about">के बारे में</string>
+    <string name="nav_home">होम</string>
+    <string name="nav_tools">उपकरण</string>
+    <string name="nav_files">फ़ाइलें</string>
+    <string name="nav_cloud">क्लाउड</string>
+    <string name="nav_profile">प्रोफ़ाइल</string>
+</resources>
