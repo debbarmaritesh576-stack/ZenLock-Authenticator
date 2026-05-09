@@ -15,7 +15,7 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0.0"
-        
+
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -49,6 +49,15 @@ android {
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.5"
     }
+
+    packaging {
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += "/META-INF/DEPENDENCIES"
+            excludes += "/META-INF/LICENSE*"
+            excludes += "/META-INF/NOTICE*"
+        }
+    }
 }
 
 dependencies {
@@ -81,8 +90,11 @@ dependencies {
     // Navigation
     implementation("androidx.navigation:navigation-compose:2.7.5")
 
-    // PDFBox
+    // PDF Box
     implementation("org.apache.pdfbox:pdfbox:3.0.0")
+
+    // iText7 - PDF Compression & Manipulation
+    implementation("com.itextpdf:itext7-core:7.2.5")
 
     // Image loading
     implementation("io.coil-kt:coil-compose:2.5.0")
