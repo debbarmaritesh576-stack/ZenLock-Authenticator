@@ -17,12 +17,40 @@ android {
         versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // 🔧 C++ NDK config
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86", "x86_64")
+        }
+
+        externalNativeBuild {
+            cmake {
+                cppFlags += listOf(
+                    "-std=c++17",
+                    "-O3",
+                    "-DNDEBUG",
+                    "-ffast-math",
+                    "-mfpu=neon"
+                )
+                arguments += listOf(
+                    "-DANDROID_STL=c++_shared",
+                    "-DANDROID_PLATFORM=android-26"
+                )
+            }
+        }
     }
 
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
+            
+            // Debug ke liye separate CMake config
+            externalNativeBuild {
+                cmake {
+                    cppFlags += listOf("-O0", "-g")  // Debug symbols
+                }
+            }
         }
         release {
             isMinifyEnabled = true
@@ -30,6 +58,20 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            
+            externalNativeBuild {
+                cmake {
+                    cppFlags += listOf("-O3", "-DNDEBUG", "-fvisibility=hidden")
+                }
+            }
+        }
+    }
+
+    // 🔧 CMake build path
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
         }
     }
 
@@ -56,6 +98,10 @@ android {
             excludes += "/META-INF/DEPENDENCIES"
             excludes += "/META-INF/LICENSE*"
             excludes += "/META-INF/NOTICE*"
+        }
+        // 🔧 Native libs ko alag-alag rakho
+        jniLibs {
+            useLegacyPackaging = true
         }
     }
 }
@@ -90,10 +136,8 @@ dependencies {
     // Navigation
     implementation("androidx.navigation:navigation-compose:2.7.5")
 
-    // PDF Box
+    // PDF Libraries
     implementation("org.apache.pdfbox:pdfbox:3.0.0")
-
-    // iText7 - PDF Compression & Manipulation
     implementation("com.itextpdf:itext7-core:7.2.5")
 
     // Image loading
@@ -106,6 +150,13 @@ dependencies {
 
     // ML Kit (for OCR)
     implementation("com.google.mlkit:text-recognition:16.0.0")
+
+    // 🔧 C++ ke liye koi extra Gradle dependency NAHI chahiye
+    // Sab kuch CMakeLists.txt mein likha hoga:
+    // - OpenSSL (prebuilt .so ya source compile)
+    // - FreeType (prebuilt .so ya source compile)
+    // - HarfBuzz
+    // - lcms2
 
     // Testing
     testImplementation("junit:junit:4.13.2")
