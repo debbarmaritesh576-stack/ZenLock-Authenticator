@@ -1,161 +1,191 @@
-package com.aegis.pdf.core.ai
+package com.aegis.pdf.ai
 
+import android.content.Context
+import android.content.SharedPreferences
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKeys
+import com.google.gson.Gson
+import com.google.gson.annotations.SerializedName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URL
-import javax.inject.Inject
-import javax.inject.Singleton
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.util.concurrent.TimeUnit
 
-@Singleton
-class AiService @Inject constructor() {
+class AiService(private val context: Context) {
 
-    private val apiKey: String = "" // User will set in settings
-    private val baseUrl = "https://api.openai.com/v1/chat/completions"
+    private val gson = Gson()
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .writeTimeout(60, TimeUnit.SECONDS)
+        .build()
 
-    suspend fun summarizeText(text: String, maxLength: Int = 150): String {
+    private val securePrefs: SharedPreferences by lazy {
+        val masterKey = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
+        EncryptedSharedPreferences.create(
+            "aegis_ai_secure_prefs",
+            masterKey,
+            context,
+            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+        )
+    }
+
+    data class AiResponse(
+        val success: Boolean,
+        val result: String?,
+        val error: String?
+    )
+
+    suspend fun analyzePdf(pdfText: String, query: String): AiResponse {
         return withContext(Dispatchers.IO) {
             try {
-                val prompt = "Summarize this text in $maxLength words: $text"
-                callGptApi(prompt)
-            } catch (e: Exception) {
-                "Summarization failed: ${e.message}"
-            }
-        }
-    }
-
-    suspend fun askQuestion(context: String, question: String): String {
-        return withContext(Dispatchers.IO) {
-            try {
-                val prompt = """
-                Context: $context
-                
-                Question: $question
-                
-                Answer based on the context above.
-                """.trimIndent()
-                callGptApi(prompt)
-            } catch (e: Exception) {
-                "Failed to answer: ${e.message}"
-            }
-        }
-    }
-
-    suspend fun translateText(text: String, targetLanguage: String): String {
-        return withContext(Dispatchers.IO) {
-            try {
-                val prompt = "Translate the following text to $targetLanguage: $text"
-                callGptApi(prompt)
-            } catch (e: Exception) {
-                "Translation failed: ${e.message}"
-            }
-        }
-    }
-
-    suspend fun generatePdfTitle(content: String): String {
-        return withContext(Dispatchers.IO) {
-            try {
-                val prompt = "Generate a short, descriptive title for this document: $content"
-                callGptApi(prompt, maxTokens = 10)
-            } catch (e: Exception) {
-                "Untitled Document"
-            }
-        }
-    }
-
-    suspend fun smartSearch(query: String, documents: List<String>): List<SearchMatch> {
-        return withContext(Dispatchers.IO) {
-            try {
-                val docText = documents.joinToString("\n---\n")
-                val prompt = """
-                Find documents matching: "$query"
-                
-                Documents:
-                $docText
-                
-                Return JSON array with [{docIndex: number, relevance: number, snippet: string}]
-                """.trimIndent()
-                
-                val response = callGptApi(prompt)
-                parseSearchResults(response)
-            } catch (e: Exception) {
-                emptyList()
-            }
-        }
-    }
-
-    private fun callGptApi(prompt: String, maxTokens: Int = 500): String {
-        val url = URL(baseUrl)
-        val connection = url.openConnection() as HttpURLConnection
-        connection.apply {
-            requestMethod = "POST"
-            setRequestProperty("Content-Type", "application/json")
-            setRequestProperty("Authorization", "Bearer $apiKey")
-            doOutput = true
-        }
-
-        val requestBody = JSONObject().apply {
-            put("model", "gpt-3.5-turbo")
-            put("messages", JSONArray().apply {
-                put(JSONObject().apply {
-                    put("role", "user")
-                    put("content", prompt)
-                })
-            })
-            put("max_tokens", maxTokens)
-            put("temperature", 0.3)
-        }
-
-        connection.outputStream.use { os ->
-            os.write(requestBody.toString().toByteArray())
-        }
-
-        val response = connection.inputStream.bufferedReader().readText()
-        connection.disconnect()
-
-        val jsonResponse = JSONObject(response)
-        val choices = jsonResponse.getJSONArray("choices")
-        return if (choices.length() > 0) {
-            choices.getJSONObject(0)
-                .getJSONObject("message")
-                .getString("content")
-                .trim()
-        } else {
-            "No response"
-        }
-    }
-
-    private fun parseSearchResults(json: String): List<SearchMatch> {
-        return try {
-            val array = JSONArray(json)
-            val results = mutableListOf<SearchMatch>()
-            for (i in 0 until array.length()) {
-                val obj = array.getJSONObject(i)
-                results.add(
-                    SearchMatch(
-                        docIndex = obj.getInt("docIndex"),
-                        relevance = obj.getDouble("relevance").toFloat(),
-                        snippet = obj.getString("snippet")
+                val apiKey = getApiKey()
+                if (apiKey.isNullOrBlank()) {
+                    return@withContext AiResponse(
+                        success = false,
+                        result = null,
+                        error = "API key not configured. Please set your API key in Settings."
                     )
+                }
+
+                val requestBody = mapOf(
+                    "model" to "gpt-3.5-turbo",
+                    "messages" to listOf(
+                        mapOf(
+                            "role" to "system",
+                            "content" to "You are a helpful assistant that analyzes PDF documents. Provide accurate and concise answers."
+                        ),
+                        mapOf(
+                            "role" to "user",
+                            "content" to "PDF Content: $pdfText\n\nQuestion: $query"
+                        )
+                    ),
+                    "temperature" to 0.3,
+                    "max_tokens" to 2000
+                )
+
+                val jsonBody = gson.toJson(requestBody)
+                val request = Request.Builder()
+                    .url("https://api.openai.com/v1/chat/completions")
+                    .addHeader("Authorization", "Bearer $apiKey")
+                    .addHeader("Content-Type", "application/json")
+                    .post(jsonBody.toRequestBody("application/json".toMediaType()))
+                    .build()
+
+                val response = client.newCall(request).execute()
+                val responseBody = response.body?.string()
+
+                if (response.isSuccessful && responseBody != null) {
+                    val aiResult = gson.fromJson(responseBody, ChatCompletionResponse::class.java)
+                    val content = aiResult.choices?.firstOrNull()?.message?.content
+
+                    AiResponse(
+                        success = true,
+                        result = content,
+                        error = null
+                    )
+                } else {
+                    val errorBody = responseBody ?: "Unknown error"
+                    if (response.code == 401) {
+                        AiResponse(
+                            success = false,
+                            result = null,
+                            error = "Invalid API key. Please check your API key in Settings."
+                        )
+                    } else if (response.code == 429) {
+                        AiResponse(
+                            success = false,
+                            result = null,
+                            error = "Rate limit exceeded. Please try again later."
+                        )
+                    } else {
+                        AiResponse(
+                            success = false,
+                            result = null,
+                            error = "API error: ${response.code} - $errorBody"
+                        )
+                    }
+                }
+            } catch (e: java.net.ConnectException) {
+                AiResponse(
+                    success = false,
+                    result = null,
+                    error = "Network error: Unable to connect to AI service. Check your internet connection."
+                )
+            } catch (e: java.net.SocketTimeoutException) {
+                AiResponse(
+                    success = false,
+                    result = null,
+                    error = "Request timed out. The PDF may be too large. Try a shorter query."
+                )
+            } catch (e: Exception) {
+                AiResponse(
+                    success = false,
+                    result = null,
+                    error = "AI service error: ${e.message}"
                 )
             }
-            results
-        } catch (e: Exception) {
-            emptyList()
         }
+    }
+
+    suspend fun summarizePdf(pdfText: String): AiResponse {
+        return analyzePdf(pdfText, "Please summarize this document concisely.")
+    }
+
+    suspend fun extractKeywords(pdfText: String): AiResponse {
+        return analyzePdf(pdfText, "Extract the 10 most important keywords from this document.")
     }
 
     fun setApiKey(key: String) {
-        // Securely store API key
+        if (key.isNotBlank()) {
+            securePrefs.edit().putString("api_key", key.trim()).apply()
+        }
     }
 
-    fun hasApiKey(): Boolean = apiKey.isNotEmpty()
+    fun getApiKey(): String? {
+        return securePrefs.getString("api_key", null)
+    }
+
+    fun isApiKeyConfigured(): Boolean {
+        return !getApiKey().isNullOrBlank()
+    }
+
+    fun clearApiKey() {
+        securePrefs.edit().remove("api_key").apply()
+    }
 }
 
-data class SearchMatch(
-    val docIndex: Int,
-    val relevance: Float,
-    val snippet: String
+// OpenAI API response models
+data class ChatCompletionResponse(
+    val id: String?,
+    val `object`: String?,
+    val created: Long?,
+    val model: String?,
+    val choices: List<Choice>?,
+    val usage: Usage?
+)
+
+data class Choice(
+    val index: Int?,
+    val message: Message?,
+    @SerializedName("finish_reason")
+    val finishReason: String?
+)
+
+data class Message(
+    val role: String?,
+    val content: String?
+)
+
+data class Usage(
+    @SerializedName("prompt_tokens")
+    val promptTokens: Int?,
+    @SerializedName("completion_tokens")
+    val completionTokens: Int?,
+    @SerializedName("total_tokens")
+    val totalTokens: Int?
 )
