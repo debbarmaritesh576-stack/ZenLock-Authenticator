@@ -1,117 +1,106 @@
-package com.aegis.pdf.data.cloud
+package com.aegis.pdf.sync
 
 import android.content.Context
+import android.content.Intent
+import android.util.Log
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInClient
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.Scope
 import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential
 import com.google.api.client.http.javanet.NetHttpTransport
 import com.google.api.client.json.gson.GsonFactory
 import com.google.api.services.drive.Drive
 import com.google.api.services.drive.DriveScopes
-import dagger.hilt.android.qualifiers.ApplicationContext
-import java.io.File
-import javax.inject.Inject
-import javax.inject.Singleton
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
-@Singleton
-class GoogleDriveManager @Inject constructor(
-    @ApplicationContext private val context: Context
-) {
+class GoogleDriveManager private constructor(private val context: Context) {
 
-    private var driveService: Drive? = null
-    private var googleSignInClient: GoogleSignInClient? = null
+    companion object {
+        private const val TAG = "GoogleDriveManager"
+        private var instance: GoogleDriveManager? = null
 
-    private val requiredScopes = listOf(
-        DriveScopes.DRIVE_FILE,
-        DriveScopes.DRIVE_READONLY
-    )
-
-    fun getSignInClient(): GoogleSignInClient {
-        if (googleSignInClient == null) {
-            val signInOptions = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-                .requestEmail()
-                .requestScopes(com.google.android.gms.common.api.Scope(DriveScopes.DRIVE_FILE))
-                .build()
-            googleSignInClient = GoogleSignIn.getClient(context, signInOptions)
+        fun getInstance(context: Context): Drive {
+            if (instance == null) {
+                instance = GoogleDriveManager(context.applicationContext)
+            }
+            return instance!!.getDriveService()
         }
-        return googleSignInClient!!
+
+        fun initialize(context: Context) {
+            instance = GoogleDriveManager(context.applicationContext)
+        }
     }
 
-    fun connect() {
+    private val driveScopes = listOf(
+        DriveScopes.DRIVE_FILE,
+        DriveScopes.DRIVE_APPDATA,
+        DriveScopes.DRIVE_METADATA
+    )
+
+    private val googleSignInClient: GoogleSignInClient by lazy {
+        val signInOptions = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestEmail()
+            .requestScopes(Scope(DriveScopes.DRIVE_FILE))
+            .build()
+
+        GoogleSignIn.getClient(context, signInOptions)
+    }
+
+    fun getSignInIntent(): Intent {
+        return googleSignInClient.signInIntent
+    }
+
+    suspend fun signOut() {
+        withContext(Dispatchers.IO) {
+            googleSignInClient.signOut()
+        }
+    }
+
+    fun getDriveService(): Drive {
         val credential = GoogleAccountCredential.usingOAuth2(
-            context, requiredScopes
-        )
-        driveService = Drive.Builder(
+            context,
+            driveScopes
+        ).apply {
+            selectedAccountName = getAccountName()
+        }
+
+        return Drive.Builder(
             NetHttpTransport(),
             GsonFactory.getDefaultInstance(),
             credential
-        ).setApplicationName("Aegis PDF").build()
+        )
+            .setApplicationName("Aegis PDF")
+            .build()
     }
 
-    fun listPdfFiles(): List<CloudPdfFile> {
-        val files = mutableListOf<CloudPdfFile>()
-        try {
-            val result = driveService?.files()?.list()
-                ?.setQ("mimeType='application/pdf'")
-                ?.setPageSize(50)
-                ?.setFields("files(id, name, size, createdTime)")
-                ?.execute()
+    private fun getAccountName(): String? {
+        val prefs = context.getSharedPreferences("aegis_drive_prefs", Context.MODE_PRIVATE)
+        return prefs.getString("account_name", null)
+    }
 
-            result?.files?.forEach { file ->
-                files.add(
-                    CloudPdfFile(
-                        id = file.id,
-                        name = file.name ?: "Unknown",
-                        size = formatSize(file.size ?: 0),
-                        type = "application/pdf"
-                    )
-                )
+    fun setAccountName(accountName: String) {
+        context.getSharedPreferences("aegis_drive_prefs", Context.MODE_PRIVATE)
+            .edit()
+            .putString("account_name", accountName)
+            .apply()
+    }
+
+    fun isSignedIn(): Boolean {
+        return GoogleSignIn.getLastSignedInAccount(context) != null
+    }
+
+    suspend fun testConnection(): Boolean {
+        return withContext(Dispatchers.IO) {
+            try {
+                val drive = getDriveService()
+                drive.files().list().setPageSize(1).execute()
+                true
+            } catch (e: Exception) {
+                Log.e(TAG, "Connection test failed", e)
+                false
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-        return files
-    }
-
-    fun downloadFile(fileId: String): File? {
-        return try {
-            val outputFile = File(context.cacheDir, "download_${System.currentTimeMillis()}.pdf")
-            driveService?.files()?.get(fileId)?.executeMediaAndDownloadTo(
-                java.io.FileOutputStream(outputFile)
-            )
-            outputFile
-        } catch (e: Exception) {
-            null
-        }
-    }
-
-    fun uploadFile(file: File): Boolean {
-        return try {
-            val metadata = com.google.api.services.drive.model.File().apply {
-                name = file.name
-                mimeType = "application/pdf"
-            }
-            val mediaContent = com.google.api.client.http.FileContent("application/pdf", file)
-            driveService?.files()?.create(metadata, mediaContent)?.execute()
-            true
-        } catch (e: Exception) {
-            false
-        }
-    }
-
-    private fun formatSize(bytes: Long): String {
-        return when {
-            bytes < 1024 -> "$bytes B"
-            bytes < 1024 * 1024 -> "${bytes / 1024} KB"
-            else -> "${bytes / (1024 * 1024)} MB"
         }
     }
 }
-
-data class CloudPdfFile(
-    val id: String,
-    val name: String,
-    val size: String,
-    val type: String
-)
