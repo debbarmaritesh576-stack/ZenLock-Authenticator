@@ -3,16 +3,48 @@ package com.aegis.pdf.features.editor.annotation
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.filled.ChangeHistory
+import androidx.compose.material.icons.filled.CheckBoxOutlineBlank
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Circle
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FormatUnderlined
+import androidx.compose.material.icons.filled.Highlight
+import androidx.compose.material.icons.filled.Note
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.filled.StrikethroughS
+import androidx.compose.material.icons.filled.Waves
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 
 enum class AnnotationToolType {
-    HIGHLIGHT, UNDERLINE, STRIKEOUT, SQUIGGLY,
-    FREEHAND, ARROW, LINE, RECTANGLE, CIRCLE, POLYGON,
-    STAMP, STICKY_NOTE, SELECT
+    HIGHLIGHT,
+    UNDERLINE,
+    STRIKEOUT,
+    SQUIGGLY,
+    FREEHAND,
+    ARROW,
+    LINE,
+    RECTANGLE,
+    CIRCLE,
+    POLYGON,
+    STAMP,
+    STICKY_NOTE,
+    SELECT
 }
 
 @Composable
@@ -25,97 +57,214 @@ fun AnnotationToolbar(
     onSizeClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Surface(tonalElevation = 3.dp, modifier = modifier.fillMaxWidth()) {
+
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        tonalElevation = 4.dp,
+        shadowElevation = 4.dp,
+        color = MaterialTheme.colorScheme.surface
+    ) {
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
-                .padding(8.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Text Markup
-            ToolChip("HL", selectedTool == AnnotationToolType.HIGHLIGHT) {
+
+            // =========================
+            // TEXT MARKUP
+            // =========================
+
+            IconToolChip(
+                icon = Icons.Default.Highlight,
+                label = "Highlight",
+                selected = selectedTool == AnnotationToolType.HIGHLIGHT
+            ) {
                 onToolSelected(AnnotationToolType.HIGHLIGHT)
             }
-            ToolChip("UL", selectedTool == AnnotationToolType.UNDERLINE) {
+
+            IconToolChip(
+                icon = Icons.Default.FormatUnderlined,
+                label = "Underline",
+                selected = selectedTool == AnnotationToolType.UNDERLINE
+            ) {
                 onToolSelected(AnnotationToolType.UNDERLINE)
             }
-            ToolChip("SO", selectedTool == AnnotationToolType.STRIKEOUT) {
+
+            IconToolChip(
+                icon = Icons.Default.StrikethroughS,
+                label = "Strike",
+                selected = selectedTool == AnnotationToolType.STRIKEOUT
+            ) {
                 onToolSelected(AnnotationToolType.STRIKEOUT)
             }
-            ToolChip("SQ", selectedTool == AnnotationToolType.SQUIGGLY) {
+
+            IconToolChip(
+                icon = Icons.Default.Waves,
+                label = "Squiggly",
+                selected = selectedTool == AnnotationToolType.SQUIGGLY
+            ) {
                 onToolSelected(AnnotationToolType.SQUIGGLY)
             }
 
-            VerticalDivider(modifier = Modifier.height(24.dp))
+            VerticalDivider(
+                modifier = Modifier.height(48.dp)
+            )
 
-            // Drawing
-            ToolChip("✏️", selectedTool == AnnotationToolType.FREEHAND) {
+            // =========================
+            // DRAWING
+            // =========================
+
+            IconToolChip(
+                icon = Icons.Default.Edit,
+                label = "Pen",
+                selected = selectedTool == AnnotationToolType.FREEHAND
+            ) {
                 onToolSelected(AnnotationToolType.FREEHAND)
             }
 
-            VerticalDivider(modifier = Modifier.height(24.dp))
+            VerticalDivider(
+                modifier = Modifier.height(48.dp)
+            )
 
-            // Lines & Shapes
-            ToolChip("→", selectedTool == AnnotationToolType.ARROW) {
+            // =========================
+            // SHAPES
+            // =========================
+
+            IconToolChip(
+                icon = Icons.Default.ArrowForward,
+                label = "Arrow",
+                selected = selectedTool == AnnotationToolType.ARROW
+            ) {
                 onToolSelected(AnnotationToolType.ARROW)
             }
-            ToolChip("—", selectedTool == AnnotationToolType.LINE) {
+
+            IconToolChip(
+                icon = Icons.Default.Remove,
+                label = "Line",
+                selected = selectedTool == AnnotationToolType.LINE
+            ) {
                 onToolSelected(AnnotationToolType.LINE)
             }
-            ToolChip("□", selectedTool == AnnotationToolType.RECTANGLE) {
+
+            IconToolChip(
+                icon = Icons.Default.CheckBoxOutlineBlank,
+                label = "Rectangle",
+                selected = selectedTool == AnnotationToolType.RECTANGLE
+            ) {
                 onToolSelected(AnnotationToolType.RECTANGLE)
             }
-            ToolChip("○", selectedTool == AnnotationToolType.CIRCLE) {
+
+            IconToolChip(
+                icon = Icons.Default.Circle,
+                label = "Circle",
+                selected = selectedTool == AnnotationToolType.CIRCLE
+            ) {
                 onToolSelected(AnnotationToolType.CIRCLE)
             }
-            ToolChip("⬠", selectedTool == AnnotationToolType.POLYGON) {
+
+            IconToolChip(
+                icon = Icons.Default.ChangeHistory,
+                label = "Polygon",
+                selected = selectedTool == AnnotationToolType.POLYGON
+            ) {
                 onToolSelected(AnnotationToolType.POLYGON)
             }
 
-            VerticalDivider(modifier = Modifier.height(24.dp))
+            VerticalDivider(
+                modifier = Modifier.height(48.dp)
+            )
 
-            // Stamp & Notes
-            ToolChip("✓", selectedTool == AnnotationToolType.STAMP) {
+            // =========================
+            // STAMP & NOTE
+            // =========================
+
+            IconToolChip(
+                icon = Icons.Default.CheckCircle,
+                label = "Stamp",
+                selected = selectedTool == AnnotationToolType.STAMP
+            ) {
                 onToolSelected(AnnotationToolType.STAMP)
             }
-            ToolChip("📝", selectedTool == AnnotationToolType.STICKY_NOTE) {
+
+            IconToolChip(
+                icon = Icons.Default.Note,
+                label = "Note",
+                selected = selectedTool == AnnotationToolType.STICKY_NOTE
+            ) {
                 onToolSelected(AnnotationToolType.STICKY_NOTE)
             }
 
-            VerticalDivider(modifier = Modifier.height(24.dp))
+            VerticalDivider(
+                modifier = Modifier.height(48.dp)
+            )
 
-            // Select
-            ToolChip("⬚", selectedTool == AnnotationToolType.SELECT) {
+            // =========================
+            // SELECT TOOL
+            // =========================
+
+            IconToolChip(
+                icon = Icons.Default.SelectAll,
+                label = "Select",
+                selected = selectedTool == AnnotationToolType.SELECT
+            ) {
                 onToolSelected(AnnotationToolType.SELECT)
             }
 
-            Spacer(Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(12.dp))
 
-            // Color picker
+            // =========================
+            // COLOR PICKER
+            // =========================
+
             Surface(
                 onClick = onColorClick,
-                modifier = Modifier.size(32.dp),
-                shape = MaterialTheme.shapes.small,
+                modifier = Modifier.size(42.dp),
+                shape = MaterialTheme.shapes.medium,
                 color = currentColor,
                 border = ButtonDefaults.outlinedButtonBorder
             ) {}
 
-            Spacer(Modifier.width(4.dp))
+            Spacer(modifier = Modifier.width(4.dp))
 
-            // Size
-            TextButton(onClick = onSizeClick) {
-                Text("${currentSize.toInt()}px")
+            // =========================
+            // SIZE BUTTON
+            // =========================
+
+            FilledTonalButton(
+                onClick = onSizeClick
+            ) {
+                Text("${currentSize.toInt()} px")
             }
         }
     }
 }
 
 @Composable
-private fun ToolChip(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun IconToolChip(
+    icon: ImageVector,
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+
     FilterChip(
         selected = selected,
         onClick = onClick,
-        label = { Text(label) }
+
+        leadingIcon = {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                modifier = Modifier.size(18.dp)
+            )
+        },
+
+        label = {
+            Text(text = label)
+        }
     )
 }
