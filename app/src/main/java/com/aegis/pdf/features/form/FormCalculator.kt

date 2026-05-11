@@ -1,0 +1,62 @@
+package com.aegis.pdf.features.form
+
+import javax.inject.Inject
+import javax.inject.Singleton
+
+@Singleton
+class FormCalculator @Inject constructor() {
+
+    data class Calculation(
+        val targetFieldId: String,
+        val expression: String,
+        val sourceFields: List<String>
+    )
+
+    private val calculations = mutableMapOf<String, Calculation>()
+
+    fun addCalculation(targetFieldId: String, expression: String, sourceFields: List<String>) {
+        calculations[targetFieldId] = Calculation(targetFieldId, expression, sourceFields)
+    }
+
+    fun calculate(fields: Map<String, String>): Map<String, String> {
+        val result = fields.toMutableMap()
+
+        calculations.forEach { (targetId, calc) ->
+            var expr = calc.expression
+            calc.sourceFields.forEach { fieldId ->
+                val value = fields[fieldId]?.toDoubleOrNull() ?: 0.0
+                expr = expr.replace("{$fieldId}", value.toString())
+            }
+
+            val computed = evaluateExpression(expr)
+            result[targetId] = computed.toString()
+        }
+
+        return result
+    }
+
+    fun autoCalculate(fieldId: String, value: String, allFields: Map<String, String>): Map<String, String> {
+        val updated = allFields.toMutableMap()
+        updated[fieldId] = value
+
+        calculations.forEach { (targetId, calc) ->
+            if (calc.sourceFields.contains(fieldId)) {
+                updated.putAll(calculate(updated))
+            }
+        }
+
+        return updated
+    }
+
+    private fun evaluateExpression(expr: String): Double {
+        return try {
+            javax.script.ScriptEngineManager()
+                .getEngineByName("rhino")
+                ?.eval(expr)
+                ?.toString()
+                ?.toDoubleOrNull() ?: 0.0
+        } catch (e: Exception) {
+            0.0
+        }
+    }
+}
