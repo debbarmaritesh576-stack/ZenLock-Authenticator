@@ -1,0 +1,92 @@
+package com.aegis.pdf.features.form
+
+import javax.inject.Inject
+import javax.inject.Singleton
+
+data class ValidationError(
+    val fieldId: String,
+    val fieldName: String,
+    val message: String
+)
+
+@Singleton
+class FormValidator @Inject constructor() {
+
+    fun validate(fields: List<FormField>): List<ValidationError> {
+        val errors = mutableListOf<ValidationError>()
+
+        fields.forEach { field ->
+            if (field.isRequired && field.value.isBlank()) {
+                errors.add(
+                    ValidationError(
+                        fieldId = field.id,
+                        fieldName = field.name,
+                        message = "${field.name} is required"
+                    )
+                )
+            }
+
+            when (field.type) {
+                FormFieldType.EMAIL -> {
+                    if (!isValidEmail(field.value)) {
+                        errors.add(
+                            ValidationError(field.id, field.name, "Invalid email address")
+                        )
+                    }
+                }
+                FormFieldType.PHONE -> {
+                    if (!isValidPhone(field.value)) {
+                        errors.add(
+                            ValidationError(field.id, field.name, "Invalid phone number")
+                        )
+                    }
+                }
+                FormFieldType.NUMBER -> {
+                    if (field.value.isNotEmpty() && field.value.toDoubleOrNull() == null) {
+                        errors.add(
+                            ValidationError(field.id, field.name, "Invalid number")
+                        )
+                    }
+                }
+                FormFieldType.DATE -> {
+                    if (field.value.isNotEmpty() && !isValidDate(field.value)) {
+                        errors.add(
+                            ValidationError(field.id, field.name, "Invalid date format (YYYY-MM-DD)")
+                        )
+                    }
+                }
+                else -> {}
+            }
+
+            if (field.maxLength > 0 && field.value.length > field.maxLength) {
+                errors.add(
+                    ValidationError(
+                        field.id, field.name,
+                        "Maximum ${field.maxLength} characters allowed"
+                    )
+                )
+            }
+        }
+
+        return errors
+    }
+
+    private fun isValidEmail(email: String): Boolean {
+        if (email.isBlank()) return true
+        return email.matches(Regex("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+$"))
+    }
+
+    private fun isValidPhone(phone: String): Boolean {
+        if (phone.isBlank()) return true
+        return phone.matches(Regex("^\\+?[0-9]{10,15}$"))
+    }
+
+    private fun isValidDate(date: String): Boolean {
+        return try {
+            java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).apply { isLenient = false }.parse(date)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+}
