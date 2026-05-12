@@ -1,0 +1,92 @@
+package com.aegis.pdf.features.convert
+
+import android.net.Uri
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
+import javax.inject.Inject
+
+data class ConvertUiState(
+    val isLoading: Boolean = false,
+    val statusMessage: String = "",
+    val progress: Float = 0f,
+    val error: String? = null,
+    val outputUris: List<Uri> = emptyList(),
+    val history: List<ConvertRecord> = emptyList(),
+    val showHistory: Boolean = false,
+    val showSettings: Boolean = false,
+    val selectedType: ConvertType? = null
+)
+
+@HiltViewModel
+class ConvertViewModel @Inject constructor(
+    private val engine: ConvertEngine,
+    private val historyManager: ConvertHistory,
+    private val settings: ConvertSettings
+) : ViewModel() {
+
+    private val _state = MutableStateFlow(ConvertUiState())
+    val state: StateFlow<ConvertUiState> = _state
+
+    fun onConvertTypeSelected(type: ConvertType) {
+        _state.value = _state.value.copy(selectedType = type)
+    }
+
+    fun onFileSelected(uri: Uri) {
+        val type = _state.value.selectedType ?: return
+        if (type == ConvertType.IMAGE_TO_PDF) {
+            onFilesSelected(listOf(uri))
+        } else {
+            convert(uri, type)
+        }
+    }
+
+    fun onFilesSelected(uris: List<Uri>) {
+        val type = _state.value.selectedType ?: return
+        viewModelScope.launch {
+            _state.value = _state.value.copy(isLoading = true, statusMessage = "Converting ${uris.size} files...")
+            val result = when (type) {
+                ConvertType.IMAGE_TO_PDF -> engine.convertImagesToPdf(uris)
+                else -> {
+                    val outputs = engine.convertBatch(uris, type) { _state.value = _state.value.copy(progress = it) }
+                    ConvertResult.Success(outputs)
+                }
+            }
+            handleResult(result)
+        }
+    }
+
+    private fun convert(uri: Uri, type: ConvertType) {
+        viewModelScope.launch {
+            _state.value = _state.value.copy(isLoading = true, statusMessage = "Converting...", error = null)
+            val result = engine.convert(uri, type)
+            handleResult(result)
+        }
+    }
+
+    private fun handleResult(result: ConvertResult) {
+        when (result) {
+            is ConvertResult.Success -> {
+                result.uris.forEach { uri ->
+                    historyManager.add(_state.value.selectedType?.name ?: "Convert", uri.toString())
+                }
+                _state.value = _state.value.copy(
+                    isLoading = false, outputUris = result.uris, error = null
+                )
+            }
+            is ConvertResult.Error -> {
+                _state.value = _state.value.copy(isLoading = false, error = result.message)
+            }
+        }
+    }
+
+    fun cancelConversion() { engine.cancelConversion(); _state.value = _state.value.copy(isLoading = false) }
+    fun showHistory() { _state.value = _state.value.copy(showHistory = true, history = historyManager.getAll()) }
+    fun clearHistory() { historyManager.clear(); _state.value = _state.value.copy(history = emptyList()) }
+    fun showSettings() { _state.value = _state.value.copy(showSettings = true) }
+    fun hideSettings() { _state.value = _state.value.copy(showSettings = false) }
+    fun clearError() { _state.value = _state.value.copy(error = null) }
+}
