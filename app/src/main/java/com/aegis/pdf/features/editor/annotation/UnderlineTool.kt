@@ -1,30 +1,82 @@
 package com.aegis.pdf.features.editor.annotation
 
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import java.util.UUID
 
 data class UnderlineAnnotation(
-    val id: Long, val pageNumber: Int, val segments: List<LineSegment>,
-    val color: Color = Color.Red, val thickness: Float = 3f
+    val id: Long,
+    val pageNumber: Int,
+    val points: List<Offset>,
+    val color: Color = Color.Red,
+    val thickness: Float = 3f
 )
-data class LineSegment(val start: Offset, val end: Offset)
 
 class UnderlineTool {
-    private var isDragging = false
-    private var lastPoint: Offset? = null
-    private val segments = mutableListOf<LineSegment>()
 
-    fun start(start: Offset) { isDragging = true; lastPoint = start; segments.clear() }
+    private var isDragging = false
+
+    private val points = mutableListOf<Offset>()
+
+    fun start(start: Offset) {
+        isDragging = true
+        points.clear()
+        points.add(start)
+    }
+
     fun update(current: Offset) {
-        if (!isDragging || lastPoint == null) return
-        segments.add(LineSegment(lastPoint!!, current)); lastPoint = current
+        if (!isDragging) return
+        points.add(current)
     }
-    fun end(): UnderlineAnnotation? {
-        isDragging = false; lastPoint = null
-        return if (segments.isEmpty()) null else UnderlineAnnotation(System.currentTimeMillis(), 0, segments.toList()).also { segments.clear() }
+
+    fun end(pageNumber: Int): UnderlineAnnotation? {
+
+        isDragging = false
+
+        if (points.size < 2) {
+            points.clear()
+            return null
+        }
+
+        val annotation = UnderlineAnnotation(
+            id = UUID.randomUUID().mostSignificantBits,
+            pageNumber = pageNumber,
+            points = points.toList()
+        )
+
+        points.clear()
+
+        return annotation
     }
-    fun DrawScope.draw(a: UnderlineAnnotation) {
-        a.segments.forEach { drawLine(a.color, it.start, it.end, a.thickness) }
+
+    fun DrawScope.draw(annotation: UnderlineAnnotation) {
+
+        if (annotation.points.size < 2) return
+
+        val path = Path()
+
+        path.moveTo(
+            annotation.points.first().x,
+            annotation.points.first().y
+        )
+
+        for (i in 1 until annotation.points.size) {
+
+            val point = annotation.points[i]
+
+            path.lineTo(point.x, point.y)
+        }
+
+        drawPath(
+            path = path,
+            color = annotation.color,
+            style = Stroke(
+                width = annotation.thickness,
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round
+            )
+        )
     }
 }
