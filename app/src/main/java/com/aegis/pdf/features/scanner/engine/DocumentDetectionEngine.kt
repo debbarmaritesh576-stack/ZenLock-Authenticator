@@ -12,336 +12,214 @@ import javax.inject.Singleton
 import com.aegis.pdf.features.scanner.model.DocumentBounds
 import com.aegis.pdf.features.scanner.model.ScanResult
 import com.aegis.pdf.features.scanner.model.ScanSettings
+import kotlin.math.sqrt
 
 @Singleton
-class DocumentEnhancementEngine @Inject constructor(
+class DocumentDetectionEngine @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
-    private val TAG = "DocumentEnhancementEngine"
+    private val TAG = "DocumentDetectionEngine"
 
-    suspend fun enhanceDocument(
-        bitmap: Bitmap,
-        bounds: DocumentBounds,
-        settings: ScanSettings
-    ): ScanResult = withContext(Dispatchers.Default) {
-        val startTime = System.currentTimeMillis()
-        
+    suspend fun detectDocumentBounds(bitmap: Bitmap): DocumentBounds? = withContext(Dispatchers.Default) {
         try {
-            var processed = bitmap.copy(bitmap.config, true)
+            val gray = convertToGrayscale(bitmap)
+            val edges = detectEdges(gray)
+            val contours = findContours(edges)
+            val largestContour = contours.maxByOrNull { it.size } ?: return@withContext null
             
-            if (settings.perspectiveCorrection) {
-                processed = perspectiveCorrection(processed, bounds)
-            }
+            if (largestContour.size < 4) return@withContext null
+
+            val bounds = approximatePolygon(largestContour)
+            if (bounds.size != 4) return@withContext null
+
+            val confidence = calculateConfidence(bounds, bitmap)
             
-            if (settings.removeGlare) {
-                processed = removeGlare(processed)
-            }
+            Log.d(TAG, "Document detected with confidence: $confidence")
             
-            if (settings.removeNoise) {
-                processed = removeNoise(processed)
-            }
-            
-            if (settings.increaseContrast) {
-                processed = adjustContrast(processed, 1.5f)
-            }
-            
-            when (settings.colorMode) {
-                com.aegis.pdf.features.scanner.model.ColorMode.GRAYSCALE -> {
-                    processed = toGrayscale(processed)
-                }
-                com.aegis.pdf.features.scanner.model.ColorMode.BLACK_WHITE -> {
-                    processed = toBlackWhite(processed)
-                }
-                com.aegis.pdf.features.scanner.model.ColorMode.AUTO -> {
-                    processed = autoColorMode(processed)
-                }
-                else -> {}
-            }
-            
-            if (settings.enableMagicColor) {
-                processed = magicColor(processed)
-            }
-            
-            val quality = calculateQuality(processed)
-            val processingTime = System.currentTimeMillis() - startTime
-            
-            Log.d(TAG, "Enhancement completed: quality=$quality, time=${processingTime}ms")
-            
-            ScanResult(
-                originalBitmap = bitmap,
-                processedBitmap = processed,
-                documentBounds = bounds,
-                quality = quality,
-                processingTime = processingTime
+            DocumentBounds(
+                topLeft = bounds[0],
+                topRight = bounds[1],
+                bottomRight = bounds[2],
+                bottomLeft = bounds[3],
+                confidence = confidence
             )
         } catch (e: Exception) {
-            Log.e(TAG, "Enhancement failed", e)
-            throw e
+            Log.e(TAG, "Document detection failed", e)
+            null
         }
     }
 
-    private fun perspectiveCorrection(bitmap: Bitmap, bounds: DocumentBounds): Bitmap {
+    private fun convertToGrayscale(bitmap: Bitmap): Bitmap {
         val width = bitmap.width
         val height = bitmap.height
+        val gray = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         
-        val srcPixels = FloatArray(8)
-        srcPixels[0] = bounds.topLeft.first
-        srcPixels[1] = bounds.topLeft.second
-        srcPixels[2] = bounds.topRight.first
-        srcPixels[3] = bounds.topRight.second
-        srcPixels[4] = bounds.bottomRight.first
-        srcPixels[5] = bounds.bottomRight.second
-        srcPixels[6] = bounds.bottomLeft.first
-        srcPixels[7] = bounds.bottomLeft.second
-        
-        val dstPixels = floatArrayOf(
-            0f, 0f,
-            width.toFloat(), 0f,
-            width.toFloat(), height.toFloat(),
-            0f, height.toFloat()
-        )
-        
-        val perspectiveMatrix = getPerspectiveTransform(srcPixels, dstPixels)
-        
-        val corrected = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        val srcPixelArray = IntArray(width * height)
-        bitmap.getPixels(srcPixelArray, 0, width, 0, 0, width, height)
-        
-        val dstPixelArray = IntArray(width * height)
-        
-        for (y in 0 until height) {
-            for (x in 0 until width) {
-                val srcCoords = perspectiveMatrix.map(floatArrayOf(x.toFloat(), y.toFloat()))
-                val srcX = srcCoords[0].toInt().coerceIn(0, width - 1)
-                val srcY = srcCoords[1].toInt().coerceIn(0, height - 1)
-                
-                dstPixelArray[y * width + x] = srcPixelArray[srcY * width + srcX]
-            }
-        }
-        
-        corrected.setPixels(dstPixelArray, 0, width, 0, 0, width, height)
-        return corrected
-    }
-
-    private fun removeGlare(bitmap: Bitmap): Bitmap {
-        val width = bitmap.width
-        val height = bitmap.height
         val pixels = IntArray(width * height)
         bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
         
-        val brightPixels = mutableListOf<Int>()
-        for (pixel in pixels) {
+        for (i in pixels.indices) {
+            val pixel = pixels[i]
             val r = (pixel shr 16) and 0xFF
             val g = (pixel shr 8) and 0xFF
             val b = pixel and 0xFF
-            val brightness = (r + g + b) / 3
-            if (brightness > 220) {
-                brightPixels.add(pixel)
-            }
-        }
-        
-        if (brightPixels.isEmpty()) return bitmap
-        
-        val avgBrightness = brightPixels.map { 
-            val r = (it shr 16) and 0xFF
-            val g = (it shr 8) and 0xFF
-            val b = it and 0xFF
-            (r + g + b) / 3
-        }.average().toInt()
-        
-        val corrected = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        for (i in pixels.indices) {
-            val r = (pixels[i] shr 16) and 0xFF
-            val g = (pixels[i] shr 8) and 0xFF
-            val b = pixels[i] and 0xFF
-            val brightness = (r + g + b) / 3
             
-            if (brightness > 200) {
-                val factor = (200 / brightness.toFloat()).coerceIn(0f, 1f)
-                val newR = (r * factor).toInt()
-                val newG = (g * factor).toInt()
-                val newB = (b * factor).toInt()
-                pixels[i] = (0xFF shl 24) or (newR shl 16) or (newG shl 8) or newB
-            }
+            val gray_value = (0.299 * r + 0.587 * g + 0.114 * b).toInt()
+            pixels[i] = (0xFF shl 24) or (gray_value shl 16) or (gray_value shl 8) or gray_value
         }
         
-        corrected.setPixels(pixels, 0, width, 0, 0, width, height)
-        return corrected
+        gray.setPixels(pixels, 0, width, 0, 0, width, height)
+        return gray
     }
 
-    private fun removeNoise(bitmap: Bitmap): Bitmap {
+    private fun detectEdges(bitmap: Bitmap): Bitmap {
         val width = bitmap.width
         val height = bitmap.height
-        val srcPixels = IntArray(width * height)
-        bitmap.getPixels(srcPixels, 0, width, 0, 0, width, height)
+        val edges = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         
-        val dstPixels = IntArray(width * height)
+        val pixels = IntArray(width * height)
+        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+        val edgePixels = IntArray(width * height)
+        
+        val sobelX = intArrayOf(-1, 0, 1, -2, 0, 2, -1, 0, 1)
+        val sobelY = intArrayOf(-1, -2, -1, 0, 0, 0, 1, 2, 1)
         
         for (y in 1 until height - 1) {
             for (x in 1 until width - 1) {
-                val neighborPixels = mutableListOf<Int>()
-                for (dy in -1..1) {
-                    for (dx in -1..1) {
-                        neighborPixels.add((srcPixels[(y + dy) * width + (x + dx)] shr 16) and 0xFF)
+                var gx = 0
+                var gy = 0
+                
+                for (ky in -1..1) {
+                    for (kx in -1..1) {
+                        val idx = (y + ky) * width + (x + kx)
+                        val gray = (pixels[idx] shr 16) and 0xFF
+                        val sobelIdx = (ky + 1) * 3 + (kx + 1)
+                        gx += gray * sobelX[sobelIdx]
+                        gy += gray * sobelY[sobelIdx]
                     }
                 }
                 
-                neighborPixels.sort()
-                val median = neighborPixels[neighborPixels.size / 2]
-                dstPixels[y * width + x] = (0xFF shl 24) or (median shl 16) or (median shl 8) or median
+                val magnitude = sqrt((gx * gx + gy * gy).toFloat()).toInt()
+                val threshold = 50
+                val edgeValue = if (magnitude > threshold) 255 else 0
+                edgePixels[y * width + x] = (0xFF shl 24) or (edgeValue shl 16) or (edgeValue shl 8) or edgeValue
             }
         }
         
-        val denoised = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        denoised.setPixels(dstPixels, 0, width, 0, 0, width, height)
-        return denoised
+        edges.setPixels(edgePixels, 0, width, 0, 0, width, height)
+        return edges
     }
 
-    private fun adjustContrast(bitmap: Bitmap, contrast: Float): Bitmap {
+    private fun findContours(bitmap: Bitmap): List<List<Pair<Float, Float>>> {
         val width = bitmap.width
         val height = bitmap.height
         val pixels = IntArray(width * height)
         bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
         
-        for (i in pixels.indices) {
-            val r = (pixels[i] shr 16) and 0xFF
-            val g = (pixels[i] shr 8) and 0xFF
-            val b = pixels[i] and 0xFF
-            
-            val newR = ((r - 128) * contrast + 128).toInt().coerceIn(0, 255)
-            val newG = ((g - 128) * contrast + 128).toInt().coerceIn(0, 255)
-            val newB = ((b - 128) * contrast + 128).toInt().coerceIn(0, 255)
-            
-            pixels[i] = (0xFF shl 24) or (newR shl 16) or (newG shl 8) or newB
-        }
+        val visited = Array(height) { BooleanArray(width) }
+        val contours = mutableListOf<List<Pair<Float, Float>>>()
         
-        val adjusted = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        adjusted.setPixels(pixels, 0, width, 0, 0, width, height)
-        return adjusted
-    }
-
-    private fun toGrayscale(bitmap: Bitmap): Bitmap {
-        val width = bitmap.width
-        val height = bitmap.height
-        val pixels = IntArray(width * height)
-        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
-        
-        for (i in pixels.indices) {
-            val r = (pixels[i] shr 16) and 0xFF
-            val g = (pixels[i] shr 8) and 0xFF
-            val b = pixels[i] and 0xFF
-            
-            val gray = (0.299 * r + 0.587 * g + 0.114 * b).toInt()
-            pixels[i] = (0xFF shl 24) or (gray shl 16) or (gray shl 8) or gray
-        }
-        
-        val grayscale = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        grayscale.setPixels(pixels, 0, width, 0, 0, width, height)
-        return grayscale
-    }
-
-    private fun toBlackWhite(bitmap: Bitmap): Bitmap {
-        val width = bitmap.width
-        val height = bitmap.height
-        val pixels = IntArray(width * height)
-        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
-        
-        var totalBrightness = 0L
-        for (pixel in pixels) {
-            val r = (pixel shr 16) and 0xFF
-            val g = (pixel shr 8) and 0xFF
-            val b = pixel and 0xFF
-            totalBrightness += (0.299 * r + 0.587 * g + 0.114 * b).toLong()
-        }
-        val threshold = (totalBrightness / pixels.size).toInt()
-        
-        for (i in pixels.indices) {
-            val r = (pixels[i] shr 16) and 0xFF
-            val g = (pixels[i] shr 8) and 0xFF
-            val b = pixels[i] and 0xFF
-            
-            val gray = (0.299 * r + 0.587 * g + 0.114 * b).toInt()
-            val bw = if (gray > threshold) 255 else 0
-            pixels[i] = (0xFF shl 24) or (bw shl 16) or (bw shl 8) or bw
-        }
-        
-        val bw = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        bw.setPixels(pixels, 0, width, 0, 0, width, height)
-        return bw
-    }
-
-    private fun autoColorMode(bitmap: Bitmap): Bitmap {
-        val width = bitmap.width
-        val height = bitmap.height
-        val pixels = IntArray(width * height)
-        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
-        
-        var colorfulness = 0.0
-        for (pixel in pixels) {
-            val r = (pixel shr 16) and 0xFF
-            val g = (pixel shr 8) and 0xFF
-            val b = pixel and 0xFF
-            colorfulness += kotlin.math.abs(r - g) + kotlin.math.abs(g - b)
-        }
-        colorfulness /= pixels.size
-        
-        return if (colorfulness > 30) bitmap else toGrayscale(bitmap)
-    }
-
-    private fun magicColor(bitmap: Bitmap): Bitmap {
-        val width = bitmap.width
-        val height = bitmap.height
-        val pixels = IntArray(width * height)
-        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
-        
-        for (i in pixels.indices) {
-            val r = (pixels[i] shr 16) and 0xFF
-            val g = (pixels[i] shr 8) and 0xFF
-            val b = pixels[i] and 0xFF
-            
-            val newR = (r * 1.1f).toInt().coerceIn(0, 255)
-            val newG = (g * 1.05f).toInt().coerceIn(0, 255)
-            val newB = (b * 0.95f).toInt().coerceIn(0, 255)
-            
-            pixels[i] = (0xFF shl 24) or (newR shl 16) or (newG shl 8) or newB
-        }
-        
-        val enhanced = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        enhanced.setPixels(pixels, 0, width, 0, 0, width, height)
-        return enhanced
-    }
-
-    private fun calculateQuality(bitmap: Bitmap): Float {
-        val width = bitmap.width
-        val height = bitmap.height
-        val pixels = IntArray(width * height)
-        bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
-        
-        var sharpness = 0.0
-        for (y in 1 until height - 1) {
-            for (x in 1 until width - 1) {
-                val center = (pixels[y * width + x] shr 16) and 0xFF
-                val neighbors = listOf(
-                    (pixels[(y - 1) * width + x] shr 16) and 0xFF,
-                    (pixels[(y + 1) * width + x] shr 16) and 0xFF,
-                    (pixels[y * width + (x - 1)] shr 16) and 0xFF,
-                    (pixels[y * width + (x + 1)] shr 16) and 0xFF
-                )
-                sharpness += neighbors.map { kotlin.math.abs(center - it) }.average()
+        for (y in 0 until height) {
+            for (x in 0 until width) {
+                if (!visited[y][x] && isWhitePixel(pixels[y * width + x])) {
+                    val contour = traceContour(pixels, visited, x, y, width, height)
+                    if (contour.size > 10) {
+                        contours.add(contour)
+                    }
+                }
             }
         }
-        sharpness /= ((width - 2) * (height - 2))
         
-        return (sharpness / 255).toFloat().coerceIn(0f, 1f)
+        return contours
     }
 
-    private fun getPerspectiveTransform(src: FloatArray, dst: FloatArray): PerspectiveMatrix {
-        return PerspectiveMatrix(src, dst)
+    private fun traceContour(
+        pixels: IntArray,
+        visited: Array<BooleanArray>,
+        startX: Int,
+        startY: Int,
+        width: Int,
+        height: Int
+    ): List<Pair<Float, Float>> {
+        val contour = mutableListOf<Pair<Float, Float>>()
+        var x = startX
+        var y = startY
+        
+        do {
+            visited[y][x] = true
+            contour.add(Pair(x.toFloat(), y.toFloat()))
+            
+            var found = false
+            for (dy in -1..1) {
+                for (dx in -1..1) {
+                    if (dx == 0 && dy == 0) continue
+                    val nx = x + dx
+                    val ny = y + dy
+                    
+                    if (nx in 0 until width && ny in 0 until height &&
+                        !visited[ny][nx] && isWhitePixel(pixels[ny * width + nx])) {
+                        x = nx
+                        y = ny
+                        found = true
+                        break
+                    }
+                }
+                if (found) break
+            }
+            
+            if (!found) break
+        } while (contour.size < 1000)
+        
+        return contour
     }
 
-    data class PerspectiveMatrix(val src: FloatArray, val dst: FloatArray) {
-        fun map(point: FloatArray): FloatArray {
-            return point
+    private fun approximatePolygon(contour: List<Pair<Float, Float>>): List<Pair<Float, Float>> {
+        if (contour.size < 4) return emptyList()
+        
+        val corners = mutableListOf<Pair<Float, Float>>()
+        val step = contour.size / 4
+        
+        for (i in 0..3) {
+            corners.add(contour[i * step % contour.size])
         }
+        
+        return sortCorners(corners)
+    }
+
+    private fun sortCorners(corners: List<Pair<Float, Float>>): List<Pair<Float, Float>> {
+        val sorted = corners.sortedWith(compareBy({ it.second }, { it.first }))
+        val topLeft = if (sorted[0].first < sorted[1].first) sorted[0] else sorted[1]
+        val topRight = if (sorted[0].first < sorted[1].first) sorted[1] else sorted[0]
+        val bottomLeft = if (sorted[2].first < sorted[3].first) sorted[2] else sorted[3]
+        val bottomRight = if (sorted[2].first < sorted[3].first) sorted[3] else sorted[2]
+        
+        return listOf(topLeft, topRight, bottomRight, bottomLeft)
+    }
+
+    private fun calculateConfidence(bounds: List<Pair<Float, Float>>, bitmap: Bitmap): Float {
+        if (bounds.size != 4) return 0f
+        
+        val (tl, tr, br, bl) = bounds
+        val topWidth = sqrt((tr.first - tl.first) * (tr.first - tl.first) + 
+                           (tr.second - tl.second) * (tr.second - tl.second))
+        val bottomWidth = sqrt((br.first - bl.first) * (br.first - bl.first) + 
+                              (br.second - bl.second) * (br.second - bl.second))
+        val leftHeight = sqrt((bl.first - tl.first) * (bl.first - tl.first) + 
+                             (bl.second - tl.second) * (bl.second - tl.second))
+        val rightHeight = sqrt((br.first - tr.first) * (br.first - tr.first) + 
+                              (br.second - tr.second) * (br.second - tr.second))
+        
+        val aspectRatio = (topWidth + bottomWidth) / (leftHeight + rightHeight) / 2
+        val aspectConfidence = if (aspectRatio in 0.5f..2f) 1f else 0.5f
+        
+        val area = (topWidth + bottomWidth) / 2 * (leftHeight + rightHeight) / 2
+        val minArea = bitmap.width * bitmap.height * 0.1f
+        val areaConfidence = (area / minArea).coerceIn(0f, 1f)
+        
+        return (aspectConfidence + areaConfidence) / 2
+    }
+
+    private fun isWhitePixel(pixel: Int): Boolean {
+        val gray = (pixel shr 16) and 0xFF
+        return gray > 128
     }
 }
