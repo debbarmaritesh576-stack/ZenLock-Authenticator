@@ -1,0 +1,114 @@
+package com.aegis.pdf.features.convert
+
+import android.net.Uri
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
+import javax.inject.Inject
+
+data class ConvertState(
+    val isLoading: Boolean = false,
+    val progress: Float = 0f,
+    val currentTask: String = "",
+    val outputUri: Uri? = null,
+    val error: String? = null,
+    val showHistory: Boolean = false,
+    val showSettings: Boolean = false,
+    val history: List<ConversionRecord> = emptyList(),
+    val estimatedSize: String = ""
+)
+
+@HiltViewModel
+class ConvertViewModel @Inject constructor(
+    private val pdfToWord: PdfToWordConverter,
+    private val pdfToExcel: PdfToExcelConverter,
+    private val pdfToImage: PdfToImageConverter,
+    private val imageToPdf: ImageToPdfConverter,
+    private val batchConverter: BatchConverter,
+    private val conversionHistory: ConversionHistory,
+    private val fileSizeEstimator: FileSizeEstimator
+) : ViewModel() {
+
+    private val _state = MutableStateFlow(ConvertState())
+    val state: StateFlow<ConvertState> = _state
+
+    fun convertPdfToWord(inputUri: Uri) {
+        convert("Converting to Word...") { pdfToWord.convert(inputUri) }
+    }
+
+    fun convertPdfToExcel(inputUri: Uri) {
+        convert("Converting to Excel...") { pdfToExcel.convert(inputUri) }
+    }
+
+    fun convertPdfToImage(inputUri: Uri, format: String = "PNG") {
+        convert("Converting to Images...") { pdfToImage.convert(inputUri, format) }
+    }
+
+    fun convertImageToPdf(imageUris: List<Uri>) {
+        convert("Creating PDF...") { imageToPdf.convert(imageUris) }
+    }
+
+    fun convertBatch(files: List<Uri>, target: ConvertTarget) {
+        viewModelScope.launch {
+            _state.value = _state.value.copy(isLoading = true, currentTask = "Batch converting ${files.size} files...")
+            try {
+                val output = batchConverter.convert(files, target) { progress ->
+                    _state.value = _state.value.copy(progress = progress)
+                }
+                _state.value = _state.value.copy(
+                    isLoading = false,
+                    outputUri = output,
+                    error = null
+                )
+                conversionHistory.addRecord(ConversionRecord(target.name, files.size, output.toString()))
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(isLoading = false, error = e.message)
+            }
+        }
+    }
+
+    fun estimateSize(inputUri: Uri, target: ConvertTarget) {
+        viewModelScope.launch {
+            val size = fileSizeEstimator.estimate(inputUri, target)
+            _state.value = _state.value.copy(estimatedSize = size)
+        }
+    }
+
+    fun showHistory() {
+        _state.value = _state.value.copy(
+            showHistory = true,
+            history = conversionHistory.getHistory()
+        )
+    }
+
+    fun clearHistory() {
+        conversionHistory.clearHistory()
+        _state.value = _state.value.copy(history = emptyList())
+    }
+
+    fun showSettings() { _state.value = _state.value.copy(showSettings = true) }
+    fun hideSettings() { _state.value = _state.value.copy(showSettings = false) }
+    fun clearError() { _state.value = _state.value.copy(error = null) }
+
+    private fun convert(taskName: String, block: suspend () -> Uri?) {
+        viewModelScope.launch {
+            _state.value = _state.value.copy(isLoading = true, currentTask = taskName, progress = 0f)
+            try {
+                val output = block()
+                _state.value = _state.value.copy(
+                    isLoading = false,
+                    outputUri = output,
+                    error = null
+                )
+                output?.let {
+                    conversionHistory.addRecord(ConversionRecord(taskName, 1, it.toString()))
+                }
+            } catch (e: Exception) {
+                _state.value = _state.value.copy(isLoading = false, error = e.message)
+            }
+        }
+    }
+}
