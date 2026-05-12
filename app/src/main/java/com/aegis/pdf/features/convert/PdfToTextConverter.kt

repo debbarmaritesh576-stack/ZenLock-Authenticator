@@ -1,0 +1,35 @@
+package com.aegis.pdf.features.convert
+
+import android.content.Context
+import android.net.Uri
+import com.aegis.pdf.core.NativeBridge
+import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.File
+import javax.inject.Inject
+import javax.inject.Singleton
+
+@Singleton
+class PdfToTextConverter @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val nativeBridge: NativeBridge
+) {
+    suspend fun convert(inputUri: Uri): Uri? {
+        val inputPath = copyToCache(inputUri) ?: throw ConversionException("Cannot read input")
+        val outputPath = inputPath.replace(".pdf", ".txt")
+
+        try {
+            nativeBridge.convertPdfToText(inputPath, outputPath)
+            return Uri.fromFile(File(outputPath))
+        } catch (e: Exception) {
+            throw ConversionException("PDF to Text failed: ${e.message}")
+        }
+    }
+
+    private fun copyToCache(uri: Uri): String? {
+        val file = File(context.cacheDir, "text_input_${System.currentTimeMillis()}.pdf")
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            file.outputStream().use { output -> input.copyTo(output) }
+        }
+        return file.absolutePath
+    }
+}
