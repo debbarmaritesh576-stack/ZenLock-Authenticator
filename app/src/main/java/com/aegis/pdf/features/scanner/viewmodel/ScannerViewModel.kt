@@ -1,104 +1,326 @@
-package com.aegis.pdf.ui.scanner
+package com.aegis.pdf.features.scanner.ui
 
-import android.content.Context
-import android.graphics.Bitmap
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
-import com.aegis.pdf.core.scanner.DocumentScanner
-import com.aegis.pdf.data.repository.PdfRepository
-import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.FileOutputStream
-import javax.inject.Inject
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.aegis.pdf.features.scanner.viewmodel.ScannerViewModel
+import com.aegis.pdf.features.scanner.model.ScanResolution
+import com.aegis.pdf.features.scanner.model.ColorMode
+import com.aegis.pdf.features.scanner.model.ScanSettings
 
-@HiltViewModel
-class ScannerViewModel @Inject constructor(
-    private val documentScanner: DocumentScanner,
-    private val repository: PdfRepository
-) : ViewModel() {
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ScannerScreen(
+    onBack: () -> Unit,
+    onScanComplete: (String) -> Unit,
+    viewModel: ScannerViewModel = hiltViewModel()
+) {
+    val state by viewModel.state.collectAsState()
+    var showSettings by remember { mutableStateOf(false) }
+    var settings by remember { mutableStateOf(ScanSettings()) }
 
-    private val _isProcessing = MutableStateFlow(false)
-    val isProcessing: StateFlow<Boolean> = _isProcessing.asStateFlow()
-
-    private val _resultMessage = MutableStateFlow<String?>(null)
-    val resultMessage: StateFlow<String?> = _resultMessage.asStateFlow()
-
-    private val _capturedImage = MutableStateFlow<Bitmap?>(null)
-    val capturedImage: StateFlow<Bitmap?> = _capturedImage.asStateFlow()
-
-    private var tempFile: File? = null
-
-    fun onImageCaptured(bitmap: Bitmap, context: Context) {
-        _capturedImage.value = bitmap
-        tempFile = File(context.cacheDir, "scan_${System.currentTimeMillis()}.jpg")
-        FileOutputStream(tempFile).use { out ->
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
-        }
-    }
-
-    fun enhanceAndSave(context: Context) {
-        viewModelScope.launch {
-            _isProcessing.value = true
-            try {
-                withContext(Dispatchers.IO) {
-                    val input = tempFile ?: throw Exception("No image captured")
-                    val outputFile = repository.createOutputFile("scanned")
-                    val enhancedFile = File(context.cacheDir, "enhanced_${System.currentTimeMillis()}.jpg")
-
-                    val success = documentScanner.enhanceDocument(input, enhancedFile)
-                    if (success) {
-                        val enhancedBitmap = BitmapFactory.decodeFile(enhancedFile.absolutePath)
-                        val pdfFile = repository.createOutputFile("document")
-                        convertToPdf(enhancedBitmap, pdfFile)
-                        enhancedBitmap.recycle()
-                        enhancedFile.delete()
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Document Scanner") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ArrowBack, "Back")
                     }
-                    withContext(Dispatchers.Main) {
-                        _resultMessage.value = if (success) "Saved: ${outputFile.name}" else "Failed to enhance"
+                },
+                actions = {
+                    IconButton(onClick = { showSettings = true }) {
+                        Icon(Icons.Default.Settings, "Settings")
                     }
                 }
-            } catch (e: Exception) {
-                _resultMessage.value = "Error: ${e.message}"
-            } finally {
-                _isProcessing.value = false
+            )
+        }
+    ) { padding ->
+        Box(modifier = Modifier
+            .fillMaxSize()
+            .padding(padding)
+            .background(Color.Black)) {
+
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .background(Color.DarkGray),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (state.currentFrame != null) {
+                        AndroidView(
+                            factory = { context ->
+                                android.widget.ImageView(context).apply {
+                                    setImageBitmap(state.currentFrame)
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Text("Waiting for camera...", color = Color.White)
+                    }
+
+                    if (state.documentBounds != null) {
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            val bounds = state.documentBounds!!
+                            val paint = androidx.compose.ui.graphics.Paint().apply {
+                                style = androidx.compose.ui.graphics.PaintingStyle.Stroke
+                                strokeWidth = 3f
+                                color = Color.Green
+                            }
+
+                            drawPath(
+                                androidx.compose.ui.graphics.Path().apply {
+                                    moveTo(bounds.topLeft.first, bounds.topLeft.second)
+                                    lineTo(bounds.topRight.first, bounds.topRight.second)
+                                    lineTo(bounds.bottomRight.first, bounds.bottomRight.second)
+                                    lineTo(bounds.bottomLeft.first, bounds.bottomLeft.second)
+                                    close()
+                                },
+                                paint
+                            )
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = { viewModel.toggleFlash() },
+                        modifier = Modifier
+                            .size(48.dp)
+                            .background(
+                                if (state.flashEnabled) Color.Yellow else Color.Gray,
+                                shape = androidx.compose.foundation.shape.CircleShape
+                            )
+                    ) {
+                        Icon(
+                            Icons.Default.FlashlightOn,
+                            "Flash",
+                            tint = Color.Black,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    Button(
+                        onClick = { viewModel.captureDocument(state.currentFrame!!, settings) },
+                        modifier = Modifier
+                            .size(72.dp)
+                            .align(Alignment.CenterVertically),
+                        shape = androidx.compose.foundation.shape.CircleShape,
+                        enabled = state.currentFrame != null && !state.isProcessing
+                    ) {
+                        Icon(Icons.Default.RadioButtonChecked, "Capture", tint = Color.White)
+                    }
+
+                    IconButton(
+                        onClick = { viewModel.toggleAutoFocus() },
+                        modifier = Modifier
+                            .size(48.dp)
+                            .background(
+                                if (state.autoFocus) Color.Blue else Color.Gray,
+                                shape = androidx.compose.foundation.shape.CircleShape
+                            )
+                    ) {
+                        Icon(
+                            Icons.Default.AutoFix,
+                            "AutoFocus",
+                            tint = Color.White,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "Quality: ${(state.docQuality * 100).toInt()}%",
+                        color = Color.White,
+                        modifier = Modifier
+                            .weight(1f)
+                            .align(Alignment.CenterVertically)
+                    )
+                    Button(
+                        onClick = { viewModel.createPdfFromCaptures() },
+                        enabled = state.capturedFrames.isNotEmpty() && !state.isProcessing
+                    ) {
+                        Icon(Icons.Default.FileCopy, "Create PDF", modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Create PDF (${state.capturedFrames.size})")
+                    }
+                }
+            }
+
+            if (state.isProcessing) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.5f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(color = Color.White)
+                }
+            }
+
+            if (showSettings) {
+                ScannerSettingsDialog(
+                    settings = settings,
+                    onSettingsChange = { settings = it },
+                    onDismiss = { showSettings = false }
+                )
+            }
+
+            if (state.error != null) {
+                AlertDialog(
+                    onDismissRequest = { viewModel.clearError() },
+                    title = { Text("Error") },
+                    text = { Text(state.error!!) },
+                    confirmButton = {
+                        TextButton(onClick = { viewModel.clearError() }) {
+                            Text("OK")
+                        }
+                    }
+                )
             }
         }
     }
+}
 
-    private fun convertToPdf(bitmap: Bitmap, outputFile: File) {
-        val document = com.tom_roush.pdfbox.pdmodel.PDDocument()
-        val page = com.tom_roush.pdfbox.pdmodel.PDPage(
-            com.tom_roush.pdfbox.pdmodel.common.PDRectangle(
-                bitmap.width.toFloat(),
-                bitmap.height.toFloat()
-            )
-        )
-        document.addPage(page)
-        val tempJpg = File.createTempFile("pdfimg", ".jpg")
-        FileOutputStream(tempJpg).use { bitmap.compress(Bitmap.CompressFormat.JPEG, 90, it) }
-        val pdImage = com.tom_roush.pdfbox.pdmodel.graphics.image.PDImageXObject
-            .createFromFile(tempJpg.absolutePath, document)
-        com.tom_roush.pdfbox.pdmodel.PDPageContentStream(document, page).use { cs ->
-            cs.drawImage(pdImage, 0f, 0f)
+@Composable
+fun ScannerSettingsDialog(
+    settings: ScanSettings,
+    onSettingsChange: (ScanSettings) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Scan Settings") },
+        text = {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                item {
+                    Text("Resolution")
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        ScanResolution.values().forEach { res ->
+                            FilterChip(
+                                selected = settings.resolution == res,
+                                onClick = { onSettingsChange(settings.copy(resolution = res)) },
+                                label = { Text(res.label) }
+                            )
+                        }
+                    }
+                }
+
+                item {
+                    Text("Color Mode")
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        ColorMode.values().forEach { mode ->
+                            FilterChip(
+                                selected = settings.colorMode == mode,
+                                onClick = { onSettingsChange(settings.copy(colorMode = mode)) },
+                                label = { Text(mode.label) }
+                            )
+                        }
+                    }
+                }
+
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Auto Enhance")
+                        Switch(
+                            checked = settings.autoEnhance,
+                            onCheckedChange = { onSettingsChange(settings.copy(autoEnhance = it)) }
+                        )
+                    }
+                }
+
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Detect Edges")
+                        Switch(
+                            checked = settings.detectEdges,
+                            onCheckedChange = { onSettingsChange(settings.copy(detectEdges = it)) }
+                        )
+                    }
+                }
+
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Perspective Correction")
+                        Switch(
+                            checked = settings.perspectiveCorrection,
+                            onCheckedChange = { onSettingsChange(settings.copy(perspectiveCorrection = it)) }
+                        )
+                    }
+                }
+
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Magic Color")
+                        Switch(
+                            checked = settings.enableMagicColor,
+                            onCheckedChange = { onSettingsChange(settings.copy(enableMagicColor = it)) }
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Done")
+            }
         }
-        document.save(outputFile)
-        document.close()
-        tempJpg.delete()
-    }
+    )
+}
 
-    fun clearImage() {
-        _capturedImage.value = null
-        tempFile?.delete()
-        tempFile = null
-    }
+@Composable
+fun AndroidView(factory: (android.content.Context) -> android.view.View, modifier: Modifier) {
+    androidx.compose.ui.viewinterop.AndroidView(
+        factory = factory,
+        modifier = modifier
+    )
+}
 
-    fun clearResult() {
-        _resultMessage.value = null
-    }
+@Composable
+fun Canvas(modifier: Modifier, onDraw: androidx.compose.ui.graphics.drawscope.DrawScope.() -> Unit) {
+    androidx.compose.foundation.Canvas(modifier = modifier, onDraw = onDraw)
 }
