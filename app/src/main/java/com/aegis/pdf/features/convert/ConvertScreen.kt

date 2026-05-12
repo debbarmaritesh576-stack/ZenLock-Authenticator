@@ -1,0 +1,105 @@
+package com.aegis.pdf.features.convert
+
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+
+data class ConvertOption(val type: ConvertType, val title: String, val subtitle: String, val icon: androidx.compose.ui.graphics.vector.ImageVector)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ConvertScreen(
+    onBack: () -> Unit,
+    viewModel: ConvertViewModel = hiltViewModel()
+) {
+    val state by viewModel.state.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let { viewModel.onFileSelected(it) }
+    }
+
+    val multiFilePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+        if (uris.isNotEmpty()) viewModel.onFilesSelected(uris)
+    }
+
+    val options = listOf(
+        ConvertOption(ConvertType.PDF_TO_WORD, "PDF → Word", "Editable DOCX", Icons.Default.Description),
+        ConvertOption(ConvertType.PDF_TO_EXCEL, "PDF → Excel", "Tables to XLSX", Icons.Default.TableChart),
+        ConvertOption(ConvertType.PDF_TO_PPT, "PDF → PPT", "Slides to PPTX", Icons.Default.Slideshow),
+        ConvertOption(ConvertType.PDF_TO_IMAGE, "PDF → Image", "PNG/JPG export", Icons.Default.Image),
+        ConvertOption(ConvertType.PDF_TO_HTML, "PDF → HTML", "Web page format", Icons.Default.Code),
+        ConvertOption(ConvertType.PDF_TO_TEXT, "PDF → Text", "Plain text extract", Icons.Default.TextSnippet),
+        ConvertOption(ConvertType.IMAGE_TO_PDF, "Image → PDF", "Create from images", Icons.Default.AddPhotoAlternate),
+        ConvertOption(ConvertType.WORD_TO_PDF, "Word → PDF", "DOCX to PDF", Icons.Default.PictureAsPdf),
+        ConvertOption(ConvertType.EXCEL_TO_PDF, "Excel → PDF", "XLSX to PDF", Icons.Default.PictureAsPdf),
+        ConvertOption(ConvertType.PPT_TO_PDF, "PPT → PDF", "PPTX to PDF", Icons.Default.PictureAsPdf),
+        ConvertOption(ConvertType.HTML_TO_PDF, "HTML → PDF", "Web to PDF", Icons.Default.PictureAsPdf)
+    )
+
+    LaunchedEffect(state.error) {
+        state.error?.let { snackbarHostState.showSnackbar(it) }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Convert") },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, null) } },
+                actions = {
+                    IconButton(onClick = { viewModel.showHistory() }) { Icon(Icons.Default.History, null) }
+                    IconButton(onClick = { viewModel.showSettings() }) { Icon(Icons.Default.Settings, null) }
+                }
+            )
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
+    ) { padding ->
+        if (state.showHistory) {
+            ConvertHistoryScreen(state.history, onClear = { viewModel.clearHistory() })
+        } else if (state.isLoading) {
+            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator()
+                    Spacer(Modifier.height(16.dp))
+                    Text(state.statusMessage)
+                    if (state.progress > 0) {
+                        LinearProgressIndicator(progress = { state.progress }, modifier = Modifier.fillMaxWidth(0.5f))
+                    }
+                }
+            }
+        } else if (state.showSettings) {
+            ConvertSettingsScreen(onBack = { viewModel.hideSettings() })
+        } else {
+            LazyColumn(modifier = Modifier.padding(padding), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                item { Text("Choose Conversion Type", style = MaterialTheme.typography.titleMedium) }
+                items(options) { option ->
+                    Card(modifier = Modifier.fillMaxWidth(), onClick = {
+                        when (option.type) {
+                            ConvertType.IMAGE_TO_PDF -> multiFilePicker.launch("image/*")
+                            else -> filePicker.launch("*/*")
+                        }
+                        viewModel.onConvertTypeSelected(option.type)
+                    }) {
+                        ListItem(
+                            headlineContent = { Text(option.title) },
+                            supportingContent = { Text(option.subtitle) },
+                            leadingContent = { Icon(option.icon, null, tint = MaterialTheme.colorScheme.primary) },
+                            trailingContent = { Icon(Icons.Default.ChevronRight, null) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
