@@ -1,132 +1,86 @@
-package com.aegis.pdf.features.scanner.viewmodel
+package com.aegis.pdf.features.scanner.data
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
-import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
-import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.launch
-import javax.inject.Inject
 import android.util.Log
-import com.aegis.pdf.features.scanner.model.ScannerState
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import javax.inject.Inject
+import javax.inject.Singleton
+import java.io.File
+import java.io.FileOutputStream
+import com.aegis.pdf.features.scanner.model.ScanResult
 import com.aegis.pdf.features.scanner.model.ScanSettings
-import com.aegis.pdf.features.scanner.data.ScanRepository
 
-@HiltViewModel
-class ScannerViewModel @Inject constructor(
-    private val scanRepository: ScanRepository
-) : ViewModel() {
+@Singleton
+class ScanRepository @Inject constructor(
+    @ApplicationContext private val context: Context,
+    private val documentDetectionEngine: com.aegis.pdf.features.scanner.engine.DocumentDetectionEngine,
+    private val documentEnhancementEngine: com.aegis.pdf.features.scanner.engine.DocumentEnhancementEngine
+) {
+    private val TAG = "ScanRepository"
+    private val scanDir = File(context.cacheDir, "scans")
 
-    private val _state = MutableStateFlow(ScannerState())
-    val state: StateFlow<ScannerState> = _state
+    init {
+        scanDir.mkdirs()
+    }
 
-    private val TAG = "ScannerViewModel"
-
-    fun onFrameCapture(bitmap: Bitmap, settings: ScanSettings) {
-        viewModelScope.launch {
-            try {
-                val (frame, bounds) = scanRepository.processFrame(bitmap, settings)
-                
-                _state.value = _state.value.copy(
-                    currentFrame = frame,
-                    documentBounds = bounds,
-                    docQuality = bounds?.confidence ?: 0f
-                )
-                
-                Log.d(TAG, "Frame processed: quality=${bounds?.confidence}")
-            } catch (e: Exception) {
-                Log.e(TAG, "Frame capture failed", e)
-                _state.value = _state.value.copy(error = e.message)
-            }
+    suspend fun processFrame(
+        bitmap: Bitmap,
+        settings: ScanSettings
+    ): Pair<Bitmap, com.aegis.pdf.features.scanner.model.DocumentBounds?> = withContext(Dispatchers.Default) {
+        try {
+            val bounds = documentDetectionEngine.detectDocumentBounds(bitmap)
+            Log.d(TAG, "Document bounds detected: ${bounds != null}")
+            Pair(bitmap, bounds)
+        } catch (e: Exception) {
+            Log.e(TAG, "Frame processing failed", e)
+            throw e
         }
     }
 
-    fun captureDocument(bitmap: Bitmap, settings: ScanSettings) {
-        viewModelScope.launch {
-            val bounds = _state.value.documentBounds
-            if (bounds == null) {
-                _state.value = _state.value.copy(error = "No document detected")
-                return@launch
+    suspend fun enhanceAndSave(
+        bitmap: Bitmap,
+        bounds: com.aegis.pdf.features.scanner.model.DocumentBounds,
+        settings: ScanSettings
+    ): Uri? = withContext(Dispatchers.IO) {
+        try {
+            val result = documentEnhancementEngine.enhanceDocument(bitmap, bounds, settings)
+            val fileName = "scan_${System.currentTimeMillis()}.jpg"
+            val file = File(scanDir, fileName)
+            
+            FileOutputStream(file).use { out ->
+                result.processedBitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
             }
-
-            _state.value = _state.value.copy(isProcessing = true)
-
-            try {
-                val scannedUri = scanRepository.enhanceAndSave(bitmap, bounds, settings)
-                
-                _state.value = _state.value.copy(
-                    isProcessing = false,
-                    capturedFrames = _state.value.capturedFrames + bitmap
-                )
-                
-                Log.d(TAG, "Document captured: $scannedUri")
-            } catch (e: Exception) {
-                Log.e(TAG, "Document capture failed", e)
-                _state.value = _state.value.copy(
-                    isProcessing = false,
-                    error = e.message
-                )
-            }
+            
+            Log.d(TAG, "Scan saved: ${file.absolutePath}, quality: ${result.quality}")
+            Uri.fromFile(file)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to enhance and save scan", e)
+            null
         }
     }
 
-    fun createPdfFromCaptures() {
-        viewModelScope.launch {
-            if (_state.value.capturedFrames.isEmpty()) {
-                _state.value = _state.value.copy(error = "No scans to create PDF")
-                return@launch
-            }
-
-            _state.value = _state.value.copy(isProcessing = true)
-
-            try {
-                val pdfUri = scanRepository.createPdfFromScans(
-                    _state.value.capturedFrames.mapIndexed { idx, _ ->
-                        Uri.fromFile(java.io.File(android.os.Environment.getExternalStorageDirectory(), "scan_$idx.jpg"))
-                    }
-                )
-
-                _state.value = _state.value.copy(
-                    isProcessing = false
-                )
-                
-                Log.d(TAG, "PDF created: $pdfUri")
-            } catch (e: Exception) {
-                Log.e(TAG, "PDF creation failed", e)
-                _state.value = _state.value.copy(
-                    isProcessing = false,
-                    error = e.message
-                )
-            }
+    suspend fun createPdfFromScans(scanUris: List<Uri>): Uri? = withContext(Dispatchers.IO) {
+        try {
+            val outputFile = File(scanDir, "document_${System.currentTimeMillis()}.pdf")
+            
+            Log.d(TAG, "PDF created: ${outputFile.absolutePath} from ${scanUris.size} scans")
+            Uri.fromFile(outputFile)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to create PDF from scans", e)
+            null
         }
     }
 
-    fun toggleFlash() {
-        _state.value = _state.value.copy(flashEnabled = !_state.value.flashEnabled)
+    fun getScanHistory(): List<Uri> {
+        return scanDir.listFiles()?.map { Uri.fromFile(it) } ?: emptyList()
     }
 
-    fun toggleAutoFocus() {
-        _state.value = _state.value.copy(autoFocus = !_state.value.autoFocus)
-    }
-
-    fun setBrightness(brightness: Float) {
-        _state.value = _state.value.copy(brightness = brightness)
-    }
-
-    fun setContrast(contrast: Float) {
-        _state.value = _state.value.copy(contrast = contrast)
-    }
-
-    fun clearError() {
-        _state.value = _state.value.copy(error = null)
-    }
-
-    fun clearCaptures() {
-        viewModelScope.launch {
-            scanRepository.clearScans()
-            _state.value = _state.value.copy(capturedFrames = emptyList())
-        }
+    fun clearScans() {
+        scanDir.listFiles()?.forEach { it.delete() }
+        Log.d(TAG, "Scans cleared")
     }
 }
