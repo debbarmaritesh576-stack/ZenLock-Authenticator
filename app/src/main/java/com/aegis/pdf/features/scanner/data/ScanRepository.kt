@@ -11,76 +11,131 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import java.io.File
 import java.io.FileOutputStream
-import com.aegis.pdf.features.scanner.model.ScanResult
-import com.aegis.pdf.features.scanner.model.ScanSettings
+import com.aegis.pdf.features.scanner.export.PdfExportManager
 
 @Singleton
 class ScanRepository @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val documentDetectionEngine: com.aegis.pdf.features.scanner.engine.DocumentDetectionEngine,
-    private val documentEnhancementEngine: com.aegis.pdf.features.scanner.engine.DocumentEnhancementEngine
+    private val pdfExportManager: PdfExportManager
 ) {
     private val TAG = "ScanRepository"
-    private val scanDir = File(context.cacheDir, "scans")
+    private val scansDir = File(context.filesDir, "scans")
 
     init {
-        scanDir.mkdirs()
+        scansDir.mkdirs()
     }
 
-    suspend fun processFrame(
-        bitmap: Bitmap,
-        settings: ScanSettings
-    ): Pair<Bitmap, com.aegis.pdf.features.scanner.model.DocumentBounds?> = withContext(Dispatchers.Default) {
+    suspend fun saveFrame(bitmap: Bitmap): Uri? = withContext(Dispatchers.IO) {
         try {
-            val bounds = documentDetectionEngine.detectDocumentBounds(bitmap)
-            Log.d(TAG, "Document bounds detected: ${bounds != null}")
-            Pair(bitmap, bounds)
-        } catch (e: Exception) {
-            Log.e(TAG, "Frame processing failed", e)
-            throw e
-        }
-    }
+            val fileName = "frame_${System.currentTimeMillis()}.jpg"
+            val file = File(scansDir, fileName)
 
-    suspend fun enhanceAndSave(
-        bitmap: Bitmap,
-        bounds: com.aegis.pdf.features.scanner.model.DocumentBounds,
-        settings: ScanSettings
-    ): Uri? = withContext(Dispatchers.IO) {
-        try {
-            val result = documentEnhancementEngine.enhanceDocument(bitmap, bounds, settings)
-            val fileName = "scan_${System.currentTimeMillis()}.jpg"
-            val file = File(scanDir, fileName)
-            
             FileOutputStream(file).use { out ->
-                result.processedBitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
+                bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)
             }
-            
-            Log.d(TAG, "Scan saved: ${file.absolutePath}, quality: ${result.quality}")
+
+            Log.d(TAG, "Frame saved: $fileName")
             Uri.fromFile(file)
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to enhance and save scan", e)
+            Log.e(TAG, "Failed to save frame", e)
             null
         }
     }
 
-    suspend fun createPdfFromScans(scanUris: List<Uri>): Uri? = withContext(Dispatchers.IO) {
+    suspend fun createPdfFromScans(
+        bitmaps: List<Bitmap>,
+        password: String? = null,
+        compress: Boolean = true,
+        addMetadata: Boolean = true
+    ): Uri? = withContext(Dispatchers.IO) {
         try {
-            val outputFile = File(scanDir, "document_${System.currentTimeMillis()}.pdf")
-            
-            Log.d(TAG, "PDF created: ${outputFile.absolutePath} from ${scanUris.size} scans")
-            Uri.fromFile(outputFile)
+            val metadata = if (addMetadata) {
+                mapOf(
+                    "title" to "Scanned Document",
+                    "author" to "Aegis PDF",
+                    "subject" to "Multi-page Scan",
+                    "keywords" to "scan, document, multi-page"
+                )
+            } else {
+                null
+            }
+
+            val pdfUri = pdfExportManager.createPdfFromBitmaps(
+                bitmaps = bitmaps,
+                fileName = "document_${System.currentTimeMillis()}.pdf",
+                password = password,
+                compress = compress,
+                addWatermark = false,
+                metadata = metadata,
+                enableOcr = false
+            )
+
+            Log.d(TAG, "PDF created from ${bitmaps.size} scans: $pdfUri")
+            pdfUri
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to create PDF from scans", e)
+            Log.e(TAG, "PDF creation failed", e)
             null
         }
     }
 
-    fun getScanHistory(): List<Uri> {
-        return scanDir.listFiles()?.map { Uri.fromFile(it) } ?: emptyList()
+    suspend fun exportAsImages(
+        bitmaps: List<Bitmap>,
+        format: String = "JPEG"
+    ): List<Uri> = withContext(Dispatchers.IO) {
+        try {
+            val uris = pdfExportManager.exportAsImages(bitmaps, format, 90)
+            Log.d(TAG, "Images exported: ${uris.size} files")
+            uris
+        } catch (e: Exception) {
+            Log.e(TAG, "Image export failed", e)
+            emptyList()
+        }
     }
 
-    fun clearScans() {
-        scanDir.listFiles()?.forEach { it.delete() }
-        Log.d(TAG, "Scans cleared")
+    fun getSavedScans(): List<Uri> {
+        return try {
+            scansDir.listFiles()?.map { Uri.fromFile(it) } ?: emptyList()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get saved scans", e)
+            emptyList()
+        }
+    }
+
+    fun deleteScan(uri: Uri): Boolean {
+        return try {
+            val file = File(uri.path ?: return false)
+            file.delete()
+            Log.d(TAG, "Scan deleted: $uri")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to delete scan", e)
+            false
+        }
+    }
+
+    fun clearAllScans() {
+        try {
+            scansDir.listFiles()?.forEach { it.delete() }
+            Log.d(TAG, "All scans cleared")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to clear scans", e)
+        }
+    }
+
+    suspend fun getScanSize(uri: Uri): Long = withContext(Dispatchers.IO) {
+        try {
+            val file = File(uri.path ?: return@withContext 0L)
+            file.length()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get scan size", e)
+            0L
+        }
+    }
+
+    fun formatFileSize(bytes: Long): String = when {
+        bytes < 1024 -> "$bytes B"
+        bytes < 1024 * 1024 -> "${bytes / 1024} KB"
+        bytes < 1024 * 1024 * 1024 -> "${bytes / (1024 * 1024)} MB"
+        else -> "${String.format("%.2f", bytes.toDouble() / (1024 * 1024 * 1024))} GB"
     }
 }
