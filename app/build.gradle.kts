@@ -403,7 +403,7 @@ dependencies {
     )
 
     androidTestImplementation(
-        "androidx.test.ext:junit:1.1.5"
+        "androidx.test.ext:junit:1.3.0"
     )
 
     androidTestImplementation(
