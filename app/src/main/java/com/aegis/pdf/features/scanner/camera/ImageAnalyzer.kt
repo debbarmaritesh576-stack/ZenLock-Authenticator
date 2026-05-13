@@ -1,36 +1,47 @@
 package com.aegis.pdf.features.scanner.camera
 
+import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.media.Image
 import android.util.Log
+import androidx.camera.core.ImageProxy
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
-import android.content.Context
-import com.aegis.pdf.features.scanner.opencv.OpenCvDocumentDetector
 
 @Singleton
-class FrameProcessor @Inject constructor(
+class ImageAnalyzer @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val openCvDetector: OpenCvDocumentDetector
+    private val frameProcessor: FrameProcessor
 ) {
-    private val TAG = "FrameProcessor"
-    private var lastFrameTime = 0L
-    private val frameInterval = 100L
+    private val TAG = "ImageAnalyzer"
 
-    suspend fun processFrame(bitmap: Bitmap) = withContext(Dispatchers.Default) {
-        val currentTime = System.currentTimeMillis()
-        if (currentTime - lastFrameTime < frameInterval) {
-            return@withContext
-        }
-        lastFrameTime = currentTime
-
+    fun analyzFrame(imageProxy: ImageProxy) {
         try {
-            val bounds = openCvDetector.detectDocument(bitmap)
-            Log.d(TAG, "Frame processed: bounds detected = ${bounds != null}")
+            val bitmap = imageProxyToBitmap(imageProxy)
+            bitmap?.let {
+                frameProcessor.processFrame(it)
+            }
         } catch (e: Exception) {
-            Log.e(TAG, "Frame processing failed", e)
+            Log.e(TAG, "Frame analysis failed", e)
+        }
+    }
+
+    private fun imageProxyToBitmap(imageProxy: ImageProxy): Bitmap? {
+        return try {
+            val image = imageProxy.image ?: return null
+
+            val planes = image.planes
+            val buffer = planes[0].buffer
+            buffer.rewind()
+            val bytes = ByteArray(buffer.capacity())
+            buffer.get(bytes)
+
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to convert ImageProxy to Bitmap", e)
+            null
         }
     }
 }
