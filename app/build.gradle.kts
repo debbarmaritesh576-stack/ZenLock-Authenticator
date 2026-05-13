@@ -221,7 +221,7 @@ dependencies {
     )
 
     implementation(
-        "androidx.hilt:hilt-navigation-compose:1.1.0"
+        "androidx.hilt:hilt-navigation-compose:1.3.0"
     )
 
     // =========================================
