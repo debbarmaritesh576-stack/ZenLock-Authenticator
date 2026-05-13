@@ -205,7 +205,7 @@ dependencies {
     // =========================================
 
     implementation(
-        "androidx.navigation:navigation-compose:2.7.7"
+        "androidx.navigation:navigation-compose:2.9.8"
     )
 
     // =========================================
