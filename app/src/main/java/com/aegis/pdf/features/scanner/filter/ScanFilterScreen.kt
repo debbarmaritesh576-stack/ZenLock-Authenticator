@@ -1,7 +1,6 @@
 package com.aegis.pdf.features.scanner.filter
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -12,13 +11,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.aegis.pdf.features.scanner.viewmodel.ScannerViewModel
-import com.aegis.pdf.features.scanner.processor.DocumentProcessor
-import com.aegis.pdf.features.scanner.model.ColorMode
 import android.graphics.Bitmap
 import kotlinx.coroutines.launch
+import android.util.Log
 
 enum class FilterType {
     ORIGINAL, MAGIC_COLOR, GRAYSCALE, BLACK_WHITE, AUTO_ENHANCE, SHARPEN, CONTRAST, BRIGHTNESS
@@ -27,8 +26,7 @@ enum class FilterType {
 data class FilterPreview(
     val type: FilterType,
     val label: String,
-    val icon: androidx.compose.material.icons.materialIcon,
-    val bitmap: Bitmap? = null
+    val icon: ImageVector
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -38,8 +36,7 @@ fun ScanFilterScreen(
     scanIndex: Int,
     onFilterApply: (Bitmap) -> Unit,
     onCancel: () -> Unit,
-    viewModel: ScannerViewModel = hiltViewModel(),
-    documentProcessor: DocumentProcessor = androidx.hilt.navigation.compose.hiltViewModel()
+    viewModel: ScannerViewModel = hiltViewModel()
 ) {
     var selectedFilter by remember { mutableStateOf(FilterType.ORIGINAL) }
     var previewBitmap by remember { mutableStateOf(originalBitmap) }
@@ -49,6 +46,7 @@ fun ScanFilterScreen(
     var showAdvancedSettings by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
+    val TAG = "ScanFilterScreen"
 
     Scaffold(
         topBar = {
@@ -74,11 +72,7 @@ fun ScanFilterScreen(
                     .background(Color.Black),
                 contentAlignment = Alignment.Center
             ) {
-                if (previewBitmap != null) {
-                    AndroidImageView(bitmap = previewBitmap!!, modifier = Modifier.fillMaxSize())
-                } else {
-                    CircularProgressIndicator(color = Color.White)
-                }
+                AndroidImageView(bitmap = previewBitmap, modifier = Modifier.fillMaxSize())
 
                 if (isProcessing) {
                     Box(
@@ -119,8 +113,10 @@ fun ScanFilterScreen(
 
                             scope.launch {
                                 try {
+                                    safeRecycle(previewBitmap)
+                                    
                                     val filtered = when (filter.type) {
-                                        FilterType.ORIGINAL -> originalBitmap
+                                        FilterType.ORIGINAL -> originalBitmap.copy(originalBitmap.config, true)
                                         FilterType.MAGIC_COLOR -> applyMagicColor(originalBitmap)
                                         FilterType.GRAYSCALE -> applyGrayscale(originalBitmap)
                                         FilterType.BLACK_WHITE -> applyBlackWhite(originalBitmap)
@@ -130,8 +126,10 @@ fun ScanFilterScreen(
                                         FilterType.BRIGHTNESS -> applyBrightness(originalBitmap, 1.1f)
                                     }
                                     previewBitmap = filtered
-                                    isProcessing = false
+                                    Log.d(TAG, "Filter applied: ${filter.type}")
                                 } catch (e: Exception) {
+                                    Log.e(TAG, "Filter application failed", e)
+                                } finally {
                                     isProcessing = false
                                 }
                             }
@@ -191,11 +189,15 @@ fun ScanFilterScreen(
                             onClick = {
                                 scope.launch {
                                     isProcessing = true
-                                    previewBitmap = applyBrightness(
-                                        applyContrast(originalBitmap, contrast),
-                                        brightness
-                                    )
-                                    isProcessing = false
+                                    try {
+                                        safeRecycle(previewBitmap)
+                                        previewBitmap = applyBrightness(
+                                            applyContrast(originalBitmap, contrast),
+                                            brightness
+                                        )
+                                    } finally {
+                                        isProcessing = false
+                                    }
                                 }
                             },
                             modifier = Modifier.weight(1f)
@@ -207,7 +209,8 @@ fun ScanFilterScreen(
                             onClick = {
                                 brightness = 1f
                                 contrast = 1f
-                                previewBitmap = originalBitmap
+                                safeRecycle(previewBitmap)
+                                previewBitmap = originalBitmap.copy(originalBitmap.config, true)
                             },
                             modifier = Modifier.weight(1f)
                         ) {
@@ -245,7 +248,10 @@ fun ScanFilterScreen(
                 }
 
                 Button(
-                    onClick = { onFilterApply(previewBitmap) },
+                    onClick = { 
+                        onFilterApply(previewBitmap)
+                        Log.d(TAG, "Filter applied and saved")
+                    },
                     modifier = Modifier.weight(1f)
                 ) {
                     Icon(Icons.Default.Check, null, modifier = Modifier.size(18.dp))
@@ -255,6 +261,13 @@ fun ScanFilterScreen(
             }
         }
     }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            safeRecycle(previewBitmap)
+            Log.d(TAG, "Filter screen disposed")
+        }
+    }
 }
 
 @Composable
@@ -262,9 +275,11 @@ fun AndroidImageView(bitmap: Bitmap, modifier: Modifier = Modifier) {
     androidx.compose.ui.viewinterop.AndroidView(
         factory = { context ->
             android.widget.ImageView(context).apply {
-                setImageBitmap(bitmap)
                 scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
             }
+        },
+        update = {
+            it.setImageBitmap(bitmap)
         },
         modifier = modifier
     )
@@ -280,7 +295,7 @@ private fun applyMagicColor(bitmap: Bitmap): Bitmap {
         ))
     }
 
-    val result = Bitmap.createBitmap(bitmap.width, bitmap.height, bitmap.config)
+    val result = Bitmap.createBitmap(bitmap.width, bitmap.height, android.graphics.Bitmap.Config.ARGB_8888)
     val canvas = android.graphics.Canvas(result)
     val paint = android.graphics.Paint().apply {
         colorFilter = android.graphics.ColorMatrixColorFilter(colorMatrix)
@@ -304,7 +319,7 @@ private fun applyGrayscale(bitmap: Bitmap): Bitmap {
         pixels[i] = (0xFF shl 24) or (gray shl 16) or (gray shl 8) or gray
     }
 
-    val result = Bitmap.createBitmap(width, height, bitmap.config)
+    val result = Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888)
     result.setPixels(pixels, 0, width, 0, 0, width, height)
     return result
 }
@@ -328,15 +343,17 @@ private fun applyBlackWhite(bitmap: Bitmap): Bitmap {
         pixels[i] = (0xFF shl 24) or (bw shl 16) or (bw shl 8) or bw
     }
 
-    val result = Bitmap.createBitmap(width, height, bitmap.config)
+    val result = Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888)
     result.setPixels(pixels, 0, width, 0, 0, width, height)
+    safeRecycle(gray)
     return result
 }
 
 private fun applyAutoEnhance(bitmap: Bitmap): Bitmap {
     var enhanced = applyContrast(bitmap, 1.2f)
-    enhanced = applyBrightness(enhanced, 1.1f)
-    return enhanced
+    val final = applyBrightness(enhanced, 1.1f)
+    safeRecycle(enhanced)
+    return final
 }
 
 private fun applySharpen(bitmap: Bitmap): Bitmap {
@@ -381,7 +398,7 @@ private fun applySharpen(bitmap: Bitmap): Bitmap {
         }
     }
 
-    val result = Bitmap.createBitmap(width, height, bitmap.config)
+    val result = Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888)
     result.setPixels(dstPixels, 0, width, 0, 0, width, height)
     return result
 }
@@ -396,7 +413,7 @@ private fun applyContrast(bitmap: Bitmap, contrast: Float): Bitmap {
         ))
     }
 
-    val result = Bitmap.createBitmap(bitmap.width, bitmap.height, bitmap.config)
+    val result = Bitmap.createBitmap(bitmap.width, bitmap.height, android.graphics.Bitmap.Config.ARGB_8888)
     val canvas = android.graphics.Canvas(result)
     val paint = android.graphics.Paint().apply {
         colorFilter = android.graphics.ColorMatrixColorFilter(colorMatrix)
@@ -415,11 +432,17 @@ private fun applyBrightness(bitmap: Bitmap, brightness: Float): Bitmap {
         ))
     }
 
-    val result = Bitmap.createBitmap(bitmap.width, bitmap.height, bitmap.config)
+    val result = Bitmap.createBitmap(bitmap.width, bitmap.height, android.graphics.Bitmap.Config.ARGB_8888)
     val canvas = android.graphics.Canvas(result)
     val paint = android.graphics.Paint().apply {
         colorFilter = android.graphics.ColorMatrixColorFilter(colorMatrix)
     }
     canvas.drawBitmap(bitmap, 0f, 0f, paint)
     return result
+}
+
+private fun safeRecycle(bitmap: Bitmap?) {
+    if (bitmap != null && !bitmap.isRecycled) {
+        bitmap.recycle()
+    }
 }
