@@ -273,7 +273,7 @@ dependencies {
     )
 
     implementation(
-        "androidx.appcompat:appcompat:1.6.1"
+        "androidx.appcompat:appcompat:1.7.1"
     )
 
     // =========================================
