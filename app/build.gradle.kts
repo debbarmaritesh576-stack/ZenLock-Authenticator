@@ -292,7 +292,7 @@ dependencies {
     // CameraX
     // =========================================
 
-    val cameraxVersion = "1.3.1"
+    val cameraxVersion = "1.6.1"
 
     implementation(
         "androidx.camera:camera-core:$cameraxVersion"
