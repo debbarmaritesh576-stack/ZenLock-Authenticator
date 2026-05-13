@@ -395,7 +395,7 @@ dependencies {
     )
 
     testImplementation(
-        "io.mockk:mockk:1.13.8"
+        "io.mockk:mockk:1.14.9"
     )
 
     testImplementation(
