@@ -22,7 +22,7 @@ hilt-navigation = { module = "androidx.hilt:hilt-navigation-compose", version = 
 lifecycle-viewmodel = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycle" }  
 lifecycle-runtime = { module = "androidx.lifecycle:lifecycle-runtime-compose", version.ref = "lifecycle" }  
 core-ktx = { module = "androidx.core:core-ktx", version.ref = "core-ktx" }  
-appcompat = { module = "androidx.appcompat:appcompat", version = "1.6.1" }  
+appcompat = { module = "androidx.appcompat:appcompat", version = "1.7.1" }  
 pdfbox-android = { module = "com.tom-roush:pdfbox-android", version = "2.0.27.0" }  
 junit = { module = "junit:junit", version.ref = "junit" }  
   
