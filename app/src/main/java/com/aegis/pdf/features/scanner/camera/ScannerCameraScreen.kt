@@ -1,129 +1,257 @@
-package com.aegis.pdf.features.scanner.opencv
+package com.aegis.pdf.features.scanner.camera
 
-import android.graphics.Bitmap
-import android.graphics.Mat
-import android.graphics.Point
-import android.util.Log
-import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import org.opencv.core.*
-import org.opencv.imgproc.Imgproc
-import javax.inject.Inject
-import javax.inject.Singleton
-import android.content.Context
-import com.aegis.pdf.features.scanner.model.DocumentBounds
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.aegis.pdf.features.scanner.viewmodel.ScannerViewModel
+import androidx.camera.view.PreviewView
 
-@Singleton
-class OpenCvDocumentDetector @Inject constructor(
-    @ApplicationContext private val context: Context
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ScannerCameraScreen(
+    onBack: () -> Unit,
+    onCapture: () -> Unit,
+    viewModel: ScannerViewModel = hiltViewModel(),
+    cameraController: com.aegis.pdf.features.scanner.camera.CameraController
 ) {
-    private val TAG = "OpenCvDocumentDetector"
+    val state by viewModel.state.collectAsState()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    
+    var showPermissionRequest by remember { mutableStateOf(false) }
+    var hasCameraPermission by remember { mutableStateOf(cameraController.hasPermissions()) }
 
-    init {
-        org.opencv.core.Core.setNumThreads(4)
-        Log.d(TAG, "OpenCV initialized")
+    if (!hasCameraPermission && !showPermissionRequest) {
+        showPermissionRequest = true
     }
 
-    suspend fun detectDocument(bitmap: Bitmap): DocumentBounds? = withContext(Dispatchers.Default) {
-        try {
-            val mat = Mat()
-            org.opencv.android.Utils.bitmapToMat(bitmap, mat)
-
-            val gray = Mat()
-            Imgproc.cvtColor(mat, gray, Imgproc.COLOR_RGBA2GRAY)
-
-            val blurred = Mat()
-            Imgproc.GaussianBlur(gray, blurred, Size(5.0, 5.0), 0.0)
-
-            val edges = Mat()
-            Imgproc.Canny(blurred, edges, 50.0, 150.0)
-
-            val dilated = Mat()
-            val kernel = Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(5.0, 5.0))
-            Imgproc.dilate(edges, dilated, kernel, Point(-1.0, -1.0), 2)
-
-            val contours = mutableListOf<MatOfPoint>()
-            val hierarchy = Mat()
-            Imgproc.findContours(dilated, contours, hierarchy, Imgproc.RETR_TREE, Imgproc.CHAIN_APPROX_SIMPLE)
-
-            val largestContour = contours.maxByOrNull { Imgproc.contourArea(it) } 
-                ?: return@withContext null
-
-            val contourArea = Imgproc.contourArea(largestContour)
-            val imageArea = bitmap.width * bitmap.height
-            if (contourArea < imageArea * 0.1) {
-                return@withContext null
+    LaunchedEffect(Unit) {
+        if (hasCameraPermission) {
+            val imageAnalyzer = FrameAnalyzer { imageProxy ->
+                // Handle frame
             }
+        }
+    }
 
-            val epsilon = 0.02 * Imgproc.arcLength(MatOfPoint2f(*largestContour.toArray()), true)
-            val approx = MatOfPoint2f()
-            Imgproc.approxPolyDP(MatOfPoint2f(*largestContour.toArray()), approx, epsilon, true)
-
-            if (approx.total() != 4L) {
-                return@withContext null
-            }
-
-            val corners = approx.toArray().sortedBy { it.x + it.y }
-            val sortedCorners = sortCorners(corners.toTypedArray())
-
-            val confidence = calculateConfidence(largestContour, bitmap)
-
-            mat.release()
-            gray.release()
-            blurred.release()
-            edges.release()
-            dilated.release()
-            kernel.release()
-            hierarchy.release()
-
-            Log.d(TAG, "Document detected: confidence=$confidence")
-
-            DocumentBounds(
-                topLeft = Pair(sortedCorners[0].x.toFloat(), sortedCorners[0].y.toFloat()),
-                topRight = Pair(sortedCorners[1].x.toFloat(), sortedCorners[1].y.toFloat()),
-                bottomRight = Pair(sortedCorners[2].x.toFloat(), sortedCorners[2].y.toFloat()),
-                bottomLeft = Pair(sortedCorners[3].x.toFloat(), sortedCorners[3].y.toFloat()),
-                confidence = confidence
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Scan Document") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.Default.ArrowBack, "Back")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { viewModel.toggleFlash() }) {
+                        Icon(
+                            if (state.flashEnabled) Icons.Default.FlashlightOn else Icons.Default.FlashlightOff,
+                            "Flash"
+                        )
+                    }
+                }
             )
-        } catch (e: Exception) {
-            Log.e(TAG, "Document detection failed", e)
-            null
         }
-    }
+    ) { padding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .background(Color.Black)
+        ) {
+            if (hasCameraPermission) {
+                CameraPreview(
+                    modifier = Modifier.fillMaxSize(),
+                    onSurfaceProviderReady = { surfaceProvider ->
+                        try {
+                            cameraController.bindCamera(
+                                lifecycleOwner,
+                                surfaceProvider,
+                                FrameAnalyzer { imageProxy ->
+                                    // Process frame
+                                }
+                            )
+                        } catch (e: Exception) {
+                            viewModel.clearError()
+                        }
+                    }
+                )
+            } else {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            Icons.Default.PhotoCamera,
+                            "Camera",
+                            tint = Color.White,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(Modifier.height(16.dp))
+                        Text("Camera permission required", color = Color.White)
+                        Spacer(Modifier.height(16.dp))
+                        Button(onClick = { hasCameraPermission = true }) {
+                            Text("Grant Permission")
+                        }
+                    }
+                }
+            }
 
-    private fun sortCorners(corners: Array<Point>): Array<Point> {
-        val sorted = mutableListOf<Point>()
+            // Document bounds overlay
+            if (state.documentBounds != null) {
+                DocumentBoundsOverlay(state.documentBounds!!)
+            }
 
-        val topY = corners.minOf { it.y }
-        val bottomY = corners.maxOf { it.y }
-        val leftX = corners.minOf { it.x }
-        val rightX = corners.maxOf { it.x }
+            // Bottom controls
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Quality indicator
+                LinearProgressIndicator(
+                    progress = { state.docQuality },
+                    modifier = Modifier.fillMaxWidth(),
+                    color = when {
+                        state.docQuality > 0.8f -> Color.Green
+                        state.docQuality > 0.6f -> Color.Yellow
+                        else -> Color.Red
+                    }
+                )
 
-        for (corner in corners) {
-            when {
-                corner.y <= (topY + bottomY) / 2 && corner.x <= (leftX + rightX) / 2 -> sorted.add(0, corner)
-                corner.y <= (topY + bottomY) / 2 -> sorted.add(1, corner)
-                corner.x <= (leftX + rightX) / 2 -> sorted.add(3, corner)
-                else -> sorted.add(2, corner)
+                // Controls
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = { viewModel.toggleAutoFocus() },
+                        modifier = Modifier
+                            .size(56.dp)
+                            .background(
+                                if (state.autoFocus) Color.Blue else Color.Gray,
+                                shape = androidx.compose.foundation.shape.CircleShape
+                            )
+                    ) {
+                        Icon(
+                            Icons.Default.AutoFix,
+                            "AutoFocus",
+                            tint = Color.White,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+
+                    Button(
+                        onClick = {
+                            onCapture()
+                            viewModel.captureDocument(state.currentFrame!!, com.aegis.pdf.features.scanner.model.ScanSettings())
+                        },
+                        modifier = Modifier
+                            .size(80.dp),
+                        shape = androidx.compose.foundation.shape.CircleShape,
+                        enabled = state.currentFrame != null && !state.isProcessing
+                    ) {
+                        Icon(
+                            Icons.Default.RadioButtonChecked,
+                            "Capture",
+                            tint = Color.White,
+                            modifier = Modifier.size(40.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { cameraController.unbindCamera() },
+                        modifier = Modifier
+                            .size(56.dp)
+                            .background(Color.Red, shape = androidx.compose.foundation.shape.CircleShape)
+                    ) {
+                        Icon(
+                            Icons.Default.Close,
+                            "Cancel",
+                            tint = Color.White,
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                }
+
+                // Capture count
+                Text(
+                    "Scans: ${state.capturedFrames.size}",
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelMedium
+                )
+            }
+
+            if (state.isProcessing) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.5f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(color = Color.White)
+                }
+            }
+
+            if (state.error != null) {
+                AlertDialog(
+                    onDismissRequest = { viewModel.clearError() },
+                    title = { Text("Error") },
+                    text = { Text(state.error!!) },
+                    confirmButton = {
+                        TextButton(onClick = { viewModel.clearError() }) {
+                            Text("OK")
+                        }
+                    }
+                )
             }
         }
-
-        return sorted.toTypedArray()
     }
+}
 
-    private fun calculateConfidence(contour: MatOfPoint, bitmap: Bitmap): Float {
-        val rect = Imgproc.boundingRect(contour)
-        val imageArea = bitmap.width * bitmap.height
-        val contourArea = Imgproc.contourArea(contour)
-        
-        val areaRatio = contourArea / imageArea
-        val areaConfidence = areaRatio.coerceIn(0f, 1f)
+@Composable
+fun DocumentBoundsOverlay(
+    bounds: com.aegis.pdf.features.scanner.model.DocumentBounds
+) {
+    Canvas(
+        modifier = Modifier.fillMaxSize()
+    ) {
+        val paint = androidx.compose.ui.graphics.Paint().apply {
+            style = androidx.compose.ui.graphics.PaintingStyle.Stroke
+            strokeWidth = 4f
+            color = Color.Green
+        }
 
-        val perimeter = Imgproc.arcLength(MatOfPoint2f(*contour.toArray()), true)
-        val circularity = (4 * Math.PI * contourArea) / (perimeter * perimeter)
-        val circularityConfidence = (1 - Math.abs(circularity - 0.8)).toFloat().coerceIn(0f, 1f)
-
-        return (areaConfidence + circularityConfidence) / 2
+        drawPath(
+            androidx.compose.ui.graphics.Path().apply {
+                moveTo(bounds.topLeft.first, bounds.topLeft.second)
+                lineTo(bounds.topRight.first, bounds.topRight.second)
+                lineTo(bounds.bottomRight.first, bounds.bottomRight.second)
+                lineTo(bounds.bottomLeft.first, bounds.bottomLeft.second)
+                close()
+            },
+            paint
+        )
     }
+}
+
+@Composable
+fun Canvas(
+    modifier: Modifier = Modifier,
+    onDraw: androidx.compose.ui.graphics.drawscope.DrawScope.() -> Unit
+) {
+    androidx.compose.foundation.Canvas(modifier = modifier, onDraw = onDraw)
 }
