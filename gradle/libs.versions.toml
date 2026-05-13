@@ -7,7 +7,7 @@ hilt = "2.50"
 lifecycle = "2.6.2"  
 room = "2.6.1"  
 activity-compose = "1.8.1"  
-core-ktx = "1.12.0"  
+core-ktx = "1.18.0"  
 junit = "4.13.2"  
   
 [libraries]  
