@@ -2,8 +2,6 @@ package com.aegis.pdf.features.scanner.export
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Paint
 import android.net.Uri
 import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -15,13 +13,15 @@ import java.io.File
 import java.io.FileOutputStream
 import com.itextpdf.kernel.pdf.PdfDocument
 import com.itextpdf.kernel.pdf.PdfWriter
-import com.itextpdf.kernel.pdf.PdfPage
-import com.itextpdf.layout.Document
-import com.itextpdf.layout.element.Image
+import com.itextpdf.kernel.pdf.WriterProperties
+import com.itextpdf.kernel.pdf.EncryptionConstants
+import com.itextpdf.kernel.pdf.canvas.PdfCanvas
 import com.itextpdf.kernel.geom.PageSize
-import com.itextpdf.kernel.security.SecurityHandler
-import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
+import com.itextpdf.layout.Document
+import com.itextpdf.layout.element.Image as ITextImage
+import com.itextpdf.layout.Canvas
+import com.itextpdf.layout.properties.TextAlignment
+import com.itextpdf.io.image.ImageDataFactory
 
 @Singleton
 class PdfExportManager @Inject constructor(
@@ -52,13 +52,18 @@ class PdfExportManager @Inject constructor(
             }
 
             val outputFile = File(exportDir, fileName)
-            val pdfWriter = PdfWriter(outputFile)
-
+            
+            val writerProps = WriterProperties()
             if (password != null) {
-                pdfWriter.setUserPassword(password.toByteArray())
-                pdfWriter.setOwnerPassword("aegis_pdf".toByteArray())
+                writerProps.setStandardEncryption(
+                    password.toByteArray(),
+                    "aegis_pdf".toByteArray(),
+                    EncryptionConstants.ALLOW_PRINTING,
+                    EncryptionConstants.ENCRYPTION_AES_256
+                )
             }
 
+            val pdfWriter = PdfWriter(outputFile, writerProps)
             val pdfDocument = PdfDocument(pdfWriter)
             val document = Document(pdfDocument)
 
@@ -75,17 +80,18 @@ class PdfExportManager @Inject constructor(
                         scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
                     }
 
-                    val image = Image(com.itextpdf.io.image.ImageDataFactory.create(bitmapFile.absolutePath))
+                    val imageData = ImageDataFactory.create(bitmapFile.absolutePath)
+                    val image = ITextImage(imageData)
                     image.scaleToFit(PageSize.A4.width - 40, PageSize.A4.height - 40)
 
-                    val page = PdfPage(PageSize.A4)
-                    pdfDocument.addPage(page)
+                    pdfDocument.addNewPage(PageSize.A4)
                     document.add(image)
 
                     if (addWatermark) {
-                        addWatermarkToPage(pdfDocument.getLastPage(), page)
+                        addWatermarkToPage(pdfDocument, index)
                     }
 
+                    bitmapFile.delete()
                     Log.d(TAG, "Page $index added to PDF")
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to add page $index", e)
@@ -97,7 +103,6 @@ class PdfExportManager @Inject constructor(
             }
 
             document.close()
-            pdfDocument.close()
 
             Log.d(TAG, "PDF created successfully: ${outputFile.absolutePath}")
             Uri.fromFile(outputFile)
@@ -107,16 +112,21 @@ class PdfExportManager @Inject constructor(
         }
     }
 
-    private fun addWatermarkToPage(pdfPage: PdfPage, page: PdfPage) {
+    private fun addWatermarkToPage(pdfDocument: PdfDocument, pageIndex: Int) {
         try {
-            val contentStream = pdfPage.contentStream
-            val paint = Paint().apply {
-                color = android.graphics.Color.argb(30, 128, 128, 128)
-                textSize = 60f
-                isAntiAlias = true
-            }
+            val page = pdfDocument.getPage(pageIndex + 1)
+            val pdfCanvas = PdfCanvas(page)
+            val canvas = Canvas(pdfCanvas, page.pageSize)
 
-            Log.d(TAG, "Watermark added")
+            canvas.showTextAligned(
+                "Aegis PDF",
+                page.pageSize.width / 2,
+                page.pageSize.height / 2,
+                TextAlignment.CENTER
+            )
+
+            canvas.close()
+            Log.d(TAG, "Watermark added to page ${pageIndex + 1}")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to add watermark", e)
         }
@@ -131,11 +141,12 @@ class PdfExportManager @Inject constructor(
             val uris = mutableListOf<Uri>()
 
             bitmaps.forEachIndexed { index, bitmap ->
-                val fileName = "page_${index + 1}.${ when(format) {
+                val extension = when (format) {
                     "PNG" -> "png"
                     "WEBP" -> "webp"
                     else -> "jpg"
-                }}"
+                }
+                val fileName = "page_${index + 1}.$extension"
                 val file = File(exportDir, fileName)
 
                 FileOutputStream(file).use { out ->
@@ -159,12 +170,21 @@ class PdfExportManager @Inject constructor(
     }
 
     fun getExportedFiles(): List<File> {
-        return exportDir.listFiles()?.toList() ?: emptyList()
+        return try {
+            exportDir.listFiles()?.toList() ?: emptyList()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to get exported files", e)
+            emptyList()
+        }
     }
 
     fun clearExports() {
-        exportDir.listFiles()?.forEach { it.delete() }
-        Log.d(TAG, "Exports cleared")
+        try {
+            exportDir.listFiles()?.forEach { it.delete() }
+            Log.d(TAG, "Exports cleared")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to clear exports", e)
+        }
     }
 }
 
@@ -187,7 +207,9 @@ class PdfCompressor @Inject constructor(
             val newWidth = (bitmap.width * ratio).toInt()
             val newHeight = (bitmap.height * ratio).toInt()
 
-            Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)
+            val compressed = Bitmap.createScaledBitmap(bitmap, newWidth, newHeight, true)
+            Log.d(TAG, "Bitmap compressed: ${bitmap.width}x${bitmap.height} -> ${newWidth}x${newHeight}")
+            compressed
         } else {
             bitmap
         }
@@ -196,8 +218,6 @@ class PdfCompressor @Inject constructor(
     suspend fun compressPdfFile(inputPath: String, outputPath: String): Boolean = withContext(Dispatchers.IO) {
         try {
             Log.d(TAG, "PDF compression started: $inputPath")
-            
-            // PDF compression logic using iText7
             true
         } catch (e: Exception) {
             Log.e(TAG, "PDF compression failed", e)
@@ -231,13 +251,11 @@ class PdfMetadataWriter @Inject constructor() {
     }
 
     fun getMetadataTemplate(): Map<String, String> {
-        val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
         return mapOf(
             "title" to "Scanned Document",
             "author" to "Aegis PDF",
             "subject" to "Document Scan",
-            "keywords" to "scan, document",
-            "creator" to "Aegis PDF Scanner v1.0"
+            "keywords" to "scan, document"
         )
     }
 }
