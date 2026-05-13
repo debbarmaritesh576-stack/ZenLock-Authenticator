@@ -229,19 +229,19 @@ dependencies {
     // =========================================
 
     implementation(
-        "androidx.room:room-runtime:2.6.1"
+        "androidx.room:room-runtime:2.8.4"
     )
 
     kapt(
-        "androidx.room:room-compiler:2.6.1"
+        "androidx.room:room-compiler:2.8.4"
     )
 
     implementation(
-        "androidx.room:room-ktx:2.6.1"
+        "androidx.room:room-ktx:2.8.4"
     )
 
     implementation(
-        "androidx.room:room-testing:2.6.1"
+        "androidx.room:room-testing:2.8.4"
     )
 
     // =========================================
