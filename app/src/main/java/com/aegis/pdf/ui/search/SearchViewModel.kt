@@ -3,6 +3,7 @@ package com.aegis.pdf.ui.search
 import androidx.lifecycle.ViewModel  
 import androidx.lifecycle.viewModelScope  
 import com.aegis.pdf.data.repository.SearchRepository  
+import com.aegis.pdf.data.repository.SearchResult  
 import dagger.hilt.android.lifecycle.HiltViewModel  
 import kotlinx.coroutines.FlowPreview  
 import kotlinx.coroutines.flow.*  
@@ -17,15 +18,19 @@ class SearchViewModel @Inject constructor(
     val searchQuery = _searchQuery.asStateFlow()  
   
     @OptIn(FlowPreview::class)  
-    val searchResults = _searchQuery  
-        .debounce(300) // User ke rukne ka wait karo (Efficiency)  
-        .filter { it.length >= 2 } // Kam se kam 2 characters par search karo  
+    val searchResults: StateFlow<List<SearchResult>> = _searchQuery  
+        .debounce(400) // 0.4 second wait karega typing rukne ka  
+        .distinctUntilChanged() // Same query dobara nahi chalayega  
         .flatMapLatest { query ->  
-            repository.searchAllFiles(query)  
+            repository.searchUniversal(query)  
         }  
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())  
+        .stateIn(  
+            scope = viewModelScope,  
+            started = SharingStarted.WhileSubscribed(5000),  
+            initialValue = emptyList()  
+        )  
   
-    fun onQueryChange(query: String) {  
-        _searchQuery.value = query  
+    fun onQueryChange(newQuery: String) {  
+        _searchQuery.value = newQuery  
     }  
 }
