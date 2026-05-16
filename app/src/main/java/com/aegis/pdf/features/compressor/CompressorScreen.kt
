@@ -1,0 +1,60 @@
+package com.aegis.pdf.feature.compressor  
+  
+import androidx.compose.foundation.layout.*  
+import androidx.compose.material3.*  
+import androidx.compose.runtime.*  
+import androidx.compose.ui.Alignment  
+import androidx.compose.ui.Modifier  
+import androidx.compose.ui.unit.dp  
+import java.io.File  
+  
+@OptIn(ExperimentalMaterial3Api::class)  
+@Composable  
+fun CompressorScreen(  
+    viewModel: CompressorViewModel,  
+    sourceFile: File,  
+    onCompressionDone: (File) -> Unit  
+) {  
+    val compressState by viewModel.compressState.collectAsState()  
+    var selectedLevel by remember { mutableStateOf(CompressionLevel.MEDIUM) }  
+  
+    Scaffold(  
+        topBar = { TopAppBar(title = { Text("Compress PDF Engine") }) }  
+    ) { paddingValues ->  
+        Column(modifier = Modifier.fillMaxSize().padding(paddingValues).padding(24.dp)) {  
+            Text("Source File: ${sourceFile.name}", style = MaterialTheme.typography.titleMedium)  
+            Text("Original Size: ${String.format("%.2f", sourceFile.length() / (1024.0 * 1024.0))} MB", color = MaterialTheme.colorScheme.outline)  
+  
+            Spacer(modifier = Modifier.height(32.dp))  
+            Text("Select Compression Target Level:")  
+              
+            // Selector segments switches setup options buttons row  
+            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp), horizontalArrangement = Arrangement.SpaceBetween) {  
+                CompressionLevel.values().forEach { level ->  
+                    FilterChip(  
+                        selected = selectedLevel == level,  
+                        onClick = { selectedLevel = level },  
+                        label = { Text(level.name) }  
+                    )  
+                }  
+            }  
+  
+            Spacer(modifier = Modifier.weight(1f))  
+  
+            // Transaction tracking conditional interfaces switches state mapping checks  
+            when (val state = compressState) {  
+                is CompressUiState.Loading -> CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))  
+                is CompressUiState.Success -> LaunchedEffect(state.file) { onCompressionDone(state.file) }  
+                is CompressUiState.Error -> Text(state.message, color = MaterialTheme.colorScheme.error)  
+                else -> {  
+                    Button(  
+                        onClick = { viewModel.startCompression(sourceFile, sourceFile.parentFile!!, selectedLevel) },  
+                        modifier = Modifier.fillMaxWidth()  
+                    ) {  
+                        Text("Optimize and Reduce Size")  
+                    }  
+                }  
+            }  
+        }  
+    }  
+}
