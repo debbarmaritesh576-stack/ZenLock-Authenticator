@@ -1,61 +1,54 @@
-package com.aegis.pdf.ui.search  
-  
-import androidx.compose.foundation.layout.*  
-import androidx.compose.foundation.lazy.LazyColumn  
-import androidx.compose.foundation.lazy.items  
-import androidx.compose.material3.*  
-import androidx.compose.runtime.*  
-import androidx.compose.ui.Modifier  
-import androidx.compose.ui.unit.dp  
-  
 @Composable  
 fun SearchScreen(viewModel: SearchViewModel = hiltViewModel()) {  
     val query by viewModel.searchQuery.collectAsState()  
     val results by viewModel.searchResults.collectAsState()  
   
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {  
-        // 1. Search Bar  
-        OutlinedTextField(  
-            value = query,  
-            onValueChange = { viewModel.onQueryChange(it) },  
-            label = { Text("Search files or content...") },  
-            modifier = Modifier.fillMaxWidth(),  
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) }  
-        )  
+        // Search Input Field  
+        SearchBar(query) { viewModel.onQueryChange(it) }  
   
         Spacer(modifier = Modifier.height(16.dp))  
   
-        // 2. Results List  
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {  
-            items(results) { result ->  
-                SearchResultItem(result)  
+        // Logic: Agar query khali nahi hai aur results empty hain  
+        if (query.isNotEmpty() && results.isEmpty()) {  
+            NoResultsFoundView(query)  
+        } else {  
+            // Results dikhao  
+            LazyColumn {  
+                items(results) { result -> SearchResultItem(result) }  
             }  
         }  
     }  
 }  
   
 @Composable  
-fun SearchResultItem(result: SearchQueryResult) {  
-    Card(modifier = Modifier.fillMaxWidth()) {  
-        Row(modifier = Modifier.padding(16.dp)) {  
-            val icon = when(result) {  
-                is SearchQueryResult.Local -> Icons.Default.Description  
-                is SearchQueryResult.Cloud -> Icons.Default.Cloud  
-                is SearchQueryResult.Content -> Icons.Default.TextFields  
-            }  
-            Icon(icon, contentDescription = null)  
-            Spacer(modifier = Modifier.width(12.dp))  
-            Column {  
-                Text(text = result.fileName, style = MaterialTheme.typography.titleMedium)  
-                Text(  
-                    text = when(result) {  
-                        is SearchQueryResult.Local -> "Local File"  
-                        is SearchQueryResult.Cloud -> "Cloud: ${result.provider}"  
-                        is SearchQueryResult.Content -> "Found inside document"  
-                    },  
-                    style = MaterialTheme.typography.bodySmall  
-                )  
-            }  
+fun NoResultsFoundView(query: String) {  
+    Column(  
+        modifier = Modifier.fillMaxSize(),  
+        verticalArrangement = Arrangement.Center,  
+        horizontalAlignment = Alignment.CenterHorizontally  
+    ) {  
+        Icon(  
+            imageVector = Icons.Default.SearchOff, // Pre-defined Material Icon  
+            contentDescription = null,  
+            modifier = Modifier.size(80.dp),  
+            tint = MaterialTheme.colorScheme.outline  
+        )  
+        Text(  
+            text = "No results for \"$query\"",  
+            style = MaterialTheme.typography.headlineSmall,  
+            textAlign = TextAlign.Center  
+        )  
+        Text(  
+            text = "Try checking the spelling or use different keywords.",  
+            style = MaterialTheme.typography.bodyMedium,  
+            textAlign = TextAlign.Center,  
+            color = MaterialTheme.colorScheme.onSurfaceVariant  
+        )  
+          
+        // Bonus Action: Search in Cloud if not synced  
+        Button(onClick = { /* Refresh Cloud Sync */ }, modifier = Modifier.padding(top = 16.dp)) {  
+            Text("Refresh Cloud Sync")  
         }  
     }  
 }
