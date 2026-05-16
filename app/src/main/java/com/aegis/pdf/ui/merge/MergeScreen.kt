@@ -1,88 +1,96 @@
-package com.aegis.pdf.ui.merge
-
-import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
-import com.aegis.pdf.ui.components.FilePicker
-import com.aegis.pdf.ui.components.ProgressDialog
-import com.aegis.pdf.ui.components.PickedFile
-import com.aegis.pdf.data.repository.FileRepository
-
-@Composable
-fun MergeScreen(
-    viewModel: MergeViewModel = hiltViewModel(),
-    onBack: () -> Unit
-) {
-    val context = LocalContext.current
-    val fileRepository = remember { FileRepository(context) }
-    val files by viewModel.files.collectAsState()
-    val isProcessing by viewModel.isProcessing.collectAsState()
-    val resultMessage by viewModel.resultMessage.collectAsState()
-
-    val launcher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetMultipleContents()
-    ) { uris: List<Uri> ->
-        uris.forEach { uri ->
-            val name = fileRepository.getFileName(uri)
-            val size = fileRepository.formatSize(fileRepository.getFileSize(uri))
-            viewModel.addFile(PickedFile(uri.toString(), name, size))
-        }
-    }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp)
-    ) {
-        Text(
-            text = "Merge PDF",
-            style = MaterialTheme.typography.headlineMedium
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        FilePicker(
-            files = files,
-            onRemoveFile = { viewModel.removeFile(it) },
-            onAddFile = { launcher.launch(arrayOf("application/pdf")) }
-        )
-
-        Spacer(modifier = Modifier.weight(1f))
-
-        Button(
-            onClick = { viewModel.mergeFiles() },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = files.size >= 2 && !isProcessing
-        ) {
-            Text("Merge ${files.size} Files")
-        }
-    }
-
-    if (isProcessing) {
-        ProgressDialog(title = "Merging PDFs", message = "Combining your files...")
-    }
-
-    resultMessage?.let { message ->
-        AlertDialog(
-            onDismissRequest = { viewModel.clearResult() },
-            title = { Text("Done") },
-            text = { Text(message) },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.clearResult()
-                    onBack()
-                }) {
-                    Text("OK")
-                }
-            }
-        )
-    }
+package com.aegis.pdf.feature.merger  
+  
+import androidx.compose.foundation.layout.*  
+import androidx.compose.foundation.lazy.LazyColumn  
+import androidx.compose.foundation.lazy.itemsIndexed  
+import androidx.compose.material3.*  
+import androidx.compose.runtime.*  
+import androidx.compose.ui.Alignment  
+import androidx.compose.ui.Modifier  
+import androidx.compose.ui.platform.LocalContext  
+import androidx.compose.ui.unit.dp  
+import java.io.File  
+  
+@OptIn(ExperimentalMaterial3Api::class)  
+@Composable  
+fun MergeScreen(  
+    viewModel: MergeViewModel,  
+    onMergeCompleted: (File) -> Unit  
+) {  
+    val files by viewModel.selectedFiles.collectAsState()  
+    val uiState by viewModel.uiState.collectAsState()  
+    val context = LocalContext.current  
+    var outputName by remember { mutableStateOf("Aegis_Merged") }  
+  
+    Scaffold(  
+        topBar = { TopAppBar(title = { Text("Merge Documents") }) }  
+    ) { paddingValues ->  
+        Column(  
+            modifier = Modifier  
+                .fillMaxSize()  
+                .padding(paddingValues)  
+                .padding(16.dp)  
+        ) {  
+            // Output File Name Input Field  
+            OutlinedTextField(  
+                value = outputName,  
+                onValueChange = { outputName = it },  
+                label = { Text("Output File Name") },  
+                modifier = Modifier.fillMaxWidth()  
+            )  
+  
+            Spacer(modifier = Modifier.height(16.dp))  
+  
+            // Dynamic List Layout  
+            LazyColumn(modifier = Modifier.weight(1f)) {  
+                itemsIndexed(files) { index, file ->  
+                    Card(  
+                        modifier = Modifier  
+                            .fillMaxWidth()  
+                            .padding(vertical = 4.dp)  
+                    ) {  
+                        Row(  
+                            modifier = Modifier  
+                                .padding(16.dp)  
+                                .fillMaxWidth(),  
+                            horizontalArrangement = Arrangement.SpaceBetween,  
+                            verticalAlignment = Alignment.CenterVertically  
+                        ) {  
+                            Text(text = "${index + 1}. ${file.name}", maxLines = 1)  
+                            Button(  
+                                onClick = { viewModel.removeFile(file) },  
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)  
+                            ) {  
+                                Text("Remove")  
+                            }  
+                        }  
+                    }  
+                }  
+            }  
+  
+            Spacer(modifier = Modifier.height(16.dp))  
+  
+            // Contextual Button State Control based on Custom UIState  
+            when (val state = uiState) {  
+                is MergeUiState.Loading -> {  
+                    CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))  
+                }  
+                is MergeUiState.Success -> {  
+                    LaunchedEffect(state.file) { onMergeCompleted(state.file) }  
+                }  
+                is MergeUiState.Error -> {  
+                    Text(text = state.message, color = MaterialTheme.colorScheme.error)  
+                }  
+                else -> {  
+                    Button(  
+                        onClick = { viewModel.startMerging(context.filesDir, outputName) },  
+                        modifier = Modifier.fillMaxWidth(),  
+                        enabled = files.size >= 2  
+                    ) {  
+                        Text("Merge ${files.size} Files")  
+                    }  
+                }  
+            }  
+        }  
+    }  
 }
