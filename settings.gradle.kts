@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "AegisPDF"
+rootProject.name = "zenlock:Authenticator"
 include(":app")
