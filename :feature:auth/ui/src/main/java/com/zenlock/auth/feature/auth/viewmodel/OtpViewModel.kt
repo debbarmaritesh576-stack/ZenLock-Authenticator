@@ -5,7 +5,6 @@ import androidx.lifecycle.viewModelScope
 import com.zenlock.auth.data.local.entity.AuthAccountEntity
 import com.zenlock.auth.data.repository.OtpRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -37,20 +36,44 @@ class OtpViewModel @Inject constructor(
 
     fun refreshOtps() {
         viewModelScope.launch {
-            val currentAccounts = _accounts.value
-
-            val otpMap = currentAccounts.associate { account ->
-                val otp = repository.generateOtp(account)
-                account.id to otp
+            val map = _accounts.value.associate { account ->
+                account.id to repository.generateOtp(account)
             }
-
-            _otpCodes.value = otpMap
+            _otpCodes.value = map
         }
     }
 
     /**
-     * Optional: manual refresh trigger (pull-to-refresh future UI)
+     * 🔥 MAIN FEATURE: Add new authenticator account
      */
+    fun addAccount(
+        issuer: String,
+        accountName: String,
+        secret: String
+    ) {
+        viewModelScope.launch {
+            val entity = AuthAccountEntity(
+                id = 0,
+                issuer = issuer,
+                accountName = accountName,
+                secret = secret,
+                createdAt = System.currentTimeMillis()
+            )
+
+            repository.insertAccount(entity)
+
+            // refresh immediately after insert
+            refreshOtps()
+        }
+    }
+
+    fun deleteAccount(account: AuthAccountEntity) {
+        viewModelScope.launch {
+            repository.deleteAccount(account)
+            refreshOtps()
+        }
+    }
+
     fun manualRefresh() {
         refreshOtps()
     }
