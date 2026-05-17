@@ -1,42 +1,43 @@
 package com.zenlock.auth.domain.otp
 
-import java.nio.ByteBuffer
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 import kotlin.math.pow
 
 class TotpGenerator {
 
-    fun generateOtp(
-        secret: ByteArray,
-        timeStep: Long = 30,
-        digits: Int = 6
-    ): String {
+    private val timeStepSeconds = 30L
+    private val digits = 6
 
-        val currentTime = System.currentTimeMillis() / 1000
-        val counter = currentTime / timeStep
+    fun generateOtp(secret: ByteArray, time: Long = System.currentTimeMillis()): String {
+        val counter = time / 1000 / timeStepSeconds
+        return generateHotp(secret, counter)
+    }
 
-        val data = ByteBuffer.allocate(8).putLong(counter).array()
+    private fun generateHotp(secret: ByteArray, counter: Long): String {
+        val data = ByteArray(8)
 
-        val hash = hmacSha1(secret, data)
+        var value = counter
+        for (i in 7 downTo 0) {
+            data[i] = (value and 0xFF).toByte()
+            value = value shr 8
+        }
 
-        val offset = hash[hash.size - 1].toInt() and 0x0F
+        val mac = Mac.getInstance("HmacSHA1")
+        val keySpec = SecretKeySpec(secret, "HmacSHA1")
+        mac.init(keySpec)
 
+        val hash = mac.doFinal(data)
+
+        val offset = hash.last().toInt() and 0x0F
         val binary =
             ((hash[offset].toInt() and 0x7F) shl 24) or
             ((hash[offset + 1].toInt() and 0xFF) shl 16) or
             ((hash[offset + 2].toInt() and 0xFF) shl 8) or
             (hash[offset + 3].toInt() and 0xFF)
 
-        val otp = binary % (10.0.pow(digits)).toInt()
+        val otp = binary % (10.0.pow(digits.toDouble())).toInt()
 
         return otp.toString().padStart(digits, '0')
-    }
-
-    private fun hmacSha1(key: ByteArray, data: ByteArray): ByteArray {
-        val mac = Mac.getInstance("HmacSHA1")
-        val secretKey = SecretKeySpec(key, "HmacSHA1")
-        mac.init(secretKey)
-        return mac.doFinal(data)
     }
 }
