@@ -1,47 +1,42 @@
-package com.zenlock.auth.domain.crypto
+package com.zenlock.auth.domain.otp
 
+import java.nio.ByteBuffer
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
-import kotlin.experimental.and
-import java.nio.ByteBuffer
-import java.util.concurrent.TimeUnit
+import kotlin.math.pow
 
 class TotpGenerator {
 
-    companion object {
-        private const val TIME_STEP_SECONDS = 30L
-        private const val OTP_DIGITS = 6
-        private const val HMAC_ALGORITHM = "HmacSHA1"
-    }
+    fun generateOtp(
+        secret: ByteArray,
+        timeStep: Long = 30,
+        digits: Int = 6
+    ): String {
 
-    fun generateTOTP(secret: ByteArray, timeMillis: Long = System.currentTimeMillis()): String {
-        val timeStep = timeMillis / 1000 / TIME_STEP_SECONDS
+        val currentTime = System.currentTimeMillis() / 1000
+        val counter = currentTime / timeStep
 
-        val data = ByteBuffer.allocate(8).putLong(timeStep).array()
+        val data = ByteBuffer.allocate(8).putLong(counter).array()
 
-        val hmac = hmacSha1(secret, data)
+        val hash = hmacSha1(secret, data)
 
-        val offset = (hmac[hmac.size - 1].toInt() and 0x0F)
+        val offset = hash[hash.size - 1].toInt() and 0x0F
 
         val binary =
-            ((hmac[offset].toInt() and 0x7F) shl 24) or
-            ((hmac[offset + 1].toInt() and 0xFF) shl 16) or
-            ((hmac[offset + 2].toInt() and 0xFF) shl 8) or
-            (hmac[offset + 3].toInt() and 0xFF)
+            ((hash[offset].toInt() and 0x7F) shl 24) or
+            ((hash[offset + 1].toInt() and 0xFF) shl 16) or
+            ((hash[offset + 2].toInt() and 0xFF) shl 8) or
+            (hash[offset + 3].toInt() and 0xFF)
 
-        val otp = binary % 10.0.pow(OTP_DIGITS.toDouble()).toInt()
+        val otp = binary % (10.0.pow(digits)).toInt()
 
-        return otp.toString().padStart(OTP_DIGITS, '0')
+        return otp.toString().padStart(digits, '0')
     }
 
     private fun hmacSha1(key: ByteArray, data: ByteArray): ByteArray {
-        val mac = Mac.getInstance(HMAC_ALGORITHM)
-        val secretKey = SecretKeySpec(key, HMAC_ALGORITHM)
+        val mac = Mac.getInstance("HmacSHA1")
+        val secretKey = SecretKeySpec(key, "HmacSHA1")
         mac.init(secretKey)
         return mac.doFinal(data)
-    }
-
-    private fun Double.pow(exp: Double): Double {
-        return kotlin.math.pow(exp)
     }
 }
