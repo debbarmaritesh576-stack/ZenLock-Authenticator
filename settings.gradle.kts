@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "zenlock:Authenticator"
+rootProject.name = "Zenlock:Authenticator"
 include(":app")
